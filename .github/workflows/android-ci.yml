@@ -34,6 +34,15 @@ jobs:
           yes | "$SDKMGR" --licenses > /dev/null || true
           yes | "$SDKMGR" "platforms;android-36" "build-tools;35.0.0" > /dev/null
 
+      - name: 诊断：关键仓库可达性（信息输出，不判失败）
+        run: |
+          check() { curl -sIL --max-time 20 -o /dev/null -w "%{http_code}" "$1" || echo "FAIL"; }
+          KSP_PATH="com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.0.21-1.0.28/com.google.devtools.ksp.gradle.plugin-2.0.21-1.0.28.pom"
+          echo "central:       $(check https://repo1.maven.org/maven2/$KSP_PATH)"
+          echo "aliyun-public: $(check https://maven.aliyun.com/repository/public/$KSP_PATH)"
+          echo "portal:        $(check https://plugins.gradle.org/m2/$KSP_PATH)"
+          echo "google:        $(check https://dl.google.com/android/maven2/$KSP_PATH)"
+
       - name: 单元测试
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
