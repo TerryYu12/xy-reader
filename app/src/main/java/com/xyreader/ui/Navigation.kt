@@ -109,7 +109,6 @@ fun ArkNavHost() {
     // 也不弹误导提示——下一实例因 pending 未清而自动重试（导入本身幂等）。
     LaunchedEffect(Unit) {
         SharedIntake.pending.collect { open ->
-            println("DIAG-A collect open=${open != null}") // TEMP-CI-DIAG：定位 CI 导入链断点，定位后移除
             if (open == null) return@collect
             importing = true
             val result = try {
@@ -126,7 +125,6 @@ fun ArkNavHost() {
                 Result.failure(e)
             }
             importing = false
-            println("DIAG-A import result=$result") // TEMP-CI-DIAG：定位 CI 导入链断点，定位后移除
             // 冷启动首个组合期内，导入可能赶在 NavHost 完成 setGraph 之前结束：
             // 等一帧再导航（生产无感 ~16ms；消除「Navigation graph has not been set」竞态）
             withFrameNanos { }
