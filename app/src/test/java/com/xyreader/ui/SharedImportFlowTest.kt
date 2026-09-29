@@ -51,12 +51,32 @@ class SharedImportFlowTest {
 
         // 导入应真实落库（而不是「被取消就了事」）
         val expected = File(File(context.filesDir, "imported"), "外部打开测试.txt")
+        val expectedUri = Uri.fromFile(expected).toString()
         val dao = ArkDatabase.getInstance(context).bookDao()
-        compose.waitUntil(timeoutMillis = 30_000) {
-            runBlocking {
-                runCatching { expected.exists() && dao.getByUri(Uri.fromFile(expected).toString()) != null }
-                    .getOrDefault(false)
+        try {
+            // 120s：本地实测该导入链路在 Robolectric 下需 ~45s（24 核机），CI（美区 4 核）更慢；宽限给足
+            compose.waitUntil(timeoutMillis = 120_000) {
+                runBlocking {
+                    runCatching { expected.exists() && dao.getByUri(expectedUri) != null }
+                        .getOrDefault(false)
+                }
             }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            val dir = File(context.filesDir, "imported")
+            val dbProbe = runBlocking { runCatching { dao.getByUri(expectedUri) } }
+            println(
+                buildString {
+                    append("DIAG pending=").append(SharedIntake.pending.value)
+                    append(" | fileExists=").append(expected.exists())
+                    append(" | filesDir=").append(context.filesDir.absolutePath)
+                    append(" | importedDirExists=").append(dir.exists())
+                    append(" | importedFiles=")
+                    append(dir.listFiles()?.joinToString { "${it.name}(${it.length()}B)" })
+                    append(" | db=").append(dbProbe)
+                    append(" | toast=").append(ShadowToast.getTextOfLatestToast())
+                },
+            )
+            throw e
         }
 
         // 且不应出现任何导入失败提示（旧缺陷会弹「无法打开这个文件：…」）
