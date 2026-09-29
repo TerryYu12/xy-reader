@@ -37,6 +37,8 @@ class SharedImportFlowTest {
     fun externalViewIntentImportsWithoutSelfCancellation() {
         val context = RuntimeEnvironment.getApplication()
         SharedIntake.consume() // 干净起点
+        val t0 = System.currentTimeMillis()
+        println("DIAG-T start")
 
         val file = File(context.cacheDir, "外部打开测试.txt")
         file.writeText("第一行正文\n第二行正文")
@@ -46,20 +48,44 @@ class SharedImportFlowTest {
                 setDataAndType(Uri.fromFile(file), "text/plain")
             },
         )
+        println("DIAG-T submit done @${System.currentTimeMillis() - t0}ms")
 
         compose.setContent { ArkTheme { ArkNavHost() } }
+        println("DIAG-T setContent done @${System.currentTimeMillis() - t0}ms")
 
         // 导入应真实落库（而不是「被取消就了事」）
         val expected = File(File(context.filesDir, "imported"), "外部打开测试.txt")
         val expectedUri = Uri.fromFile(expected).toString()
         val dao = ArkDatabase.getInstance(context).bookDao()
+        var polls = 0
         try {
-            // 120s：本地实测该导入链路在 Robolectric 下需 ~45s（24 核机），CI（美区 4 核）更慢；宽限给足
-            compose.waitUntil(timeoutMillis = 120_000) {
-                runBlocking {
+            // 不用 waitUntil 单等：Robolectric/CI 下需要显式泵（compose 帧 + 主 looper）推动导入协程；
+            // 本地实测导入本身瞬时，等待成本全在冷启动与调度窗口。宽限 180s，每 100 轮打印一次状态。
+            val deadline = System.currentTimeMillis() + 180_000
+            var ok = false
+            while (!ok && System.currentTimeMillis() < deadline) {
+                ok = runBlocking {
                     runCatching { expected.exists() && dao.getByUri(expectedUri) != null }
                         .getOrDefault(false)
                 }
+                if (ok) break
+                polls++
+                if (polls % 100 == 0) {
+                    println(
+                        "DIAG-T pump#$polls @${System.currentTimeMillis() - t0}ms" +
+                            " file=${expected.exists()} dir=${File(context.filesDir, "imported").exists()}" +
+                            " pending=${SharedIntake.pending.value != null}",
+                    )
+                }
+                compose.waitForIdle()
+                org.robolectric.shadows.ShadowLooper.idleMainLooper()
+                Thread.sleep(20)
+            }
+            println("DIAG-T wait done @${System.currentTimeMillis() - t0}ms pumps=$polls ok=$ok")
+            if (!ok) {
+                throw androidx.compose.ui.test.ComposeTimeoutException(
+                    "导入条件 180s 内未满足（pumps=$polls）",
+                )
             }
         } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
             val dir = File(context.filesDir, "imported")
@@ -74,6 +100,8 @@ class SharedImportFlowTest {
                     append(dir.listFiles()?.joinToString { "${it.name}(${it.length()}B)" })
                     append(" | db=").append(dbProbe)
                     append(" | toast=").append(ShadowToast.getTextOfLatestToast())
+                    append(" | polls=").append(polls)
+                    append(" | elapsed=").append(System.currentTimeMillis() - t0).append("ms")
                 },
             )
             throw e
