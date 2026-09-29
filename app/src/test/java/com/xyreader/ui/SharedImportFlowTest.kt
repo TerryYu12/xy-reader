@@ -48,7 +48,7 @@ class SharedImportFlowTest {
                 setDataAndType(Uri.fromFile(file), "text/plain")
             },
         )
-        println("DIAG-T submit done @${System.currentTimeMillis() - t0}ms")
+        println("DIAG-T submit done @${System.currentTimeMillis() - t0}ms pendingSet=${SharedIntake.pending.value != null}")
 
         compose.setContent { ArkTheme { ArkNavHost() } }
         println("DIAG-T setContent done @${System.currentTimeMillis() - t0}ms")
