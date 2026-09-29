@@ -1,0 +1,26 @@
+# ---- Gradle / Android 构建产物 ----
+.gradle/
+.kotlin/
+build/
+captures/
+.cxx/
+
+# ---- 本地产物：APK 与构建/测试日志（不入库，源码可随时重建）----
+outputs/
+*.apk
+*.aab
+*.log
+
+# ---- 本地配置与手工备份（备份已由 git 接管）----
+local.properties
+backups/
+
+# ---- 签名密钥（永不入库）----
+*.jks
+*.keystore
+
+# ---- IDE / 系统 ----
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
