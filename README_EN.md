@@ -115,6 +115,8 @@ Open from the reading toolbar, or go to **Settings → Reading configuration**. 
 - Remote repository addresses and credentials are stored only on your device;
 - Google Drive access uses the `drive.readonly` scope only — the app cannot modify anything in your drive.
 
+The full privacy policy is available at [PRIVACY_EN.md](PRIVACY_EN.md) (the same text appears in the app under Settings → Privacy Policy).
+
 ## Credits & acknowledgements
 
 ### Open-source components

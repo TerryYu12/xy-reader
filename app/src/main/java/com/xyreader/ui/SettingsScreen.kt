@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Coffee
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
@@ -65,6 +66,8 @@ fun SettingsScreen(
     onOpenGdrive: () -> Unit,
     onOpenGroups: () -> Unit,
     onOpenReaderConfig: () -> Unit,
+    onOpenPrivacy: () -> Unit,
+    onOpenSupport: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -166,7 +169,15 @@ fun SettingsScreen(
                     icon = Icons.Outlined.PrivacyTip,
                     title = "隐私政策",
                     iconTint = accentColor(AccentColor.GRAY),
-                    onClick = { scope.launch { snackbar.showSnackbar("隐私政策页面占位中") } },
+                    onClick = onOpenPrivacy,
+                )
+                RowDivider()
+                SettingRow(
+                    icon = Icons.Outlined.Coffee,
+                    title = "支持作者",
+                    subtitle = "请作者喝杯咖啡",
+                    iconTint = accentColor(AccentColor.GOLD),
+                    onClick = onOpenSupport,
                 )
             }
 

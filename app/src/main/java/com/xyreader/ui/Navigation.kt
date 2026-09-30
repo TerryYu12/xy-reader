@@ -67,6 +67,8 @@ private object Routes {
     const val GDRIVE = "settings/gdrive"
     const val GROUPS = "settings/groups"
     const val READER_CONFIG = "settings/reader-config"
+    const val PRIVACY = "settings/privacy"
+    const val SUPPORT = "settings/support"
     const val GROUP_BOOKS = "shelf/group/{groupId}"
     const val BOOKMARKS = "bookmarks"
     const val SHELF_LIST = "shelf/list/{section}"
@@ -201,6 +203,8 @@ fun ArkNavHost() {
                     onOpenGdrive = { nav.navigate(Routes.GDRIVE) },
                     onOpenGroups = { nav.navigate(Routes.GROUPS) },
                     onOpenReaderConfig = { nav.navigate(Routes.READER_CONFIG) },
+                    onOpenPrivacy = { nav.navigate(Routes.PRIVACY) },
+                    onOpenSupport = { nav.navigate(Routes.SUPPORT) },
                 )
             }
 
@@ -239,6 +243,16 @@ fun ArkNavHost() {
             // 阅读配置管理（翻页模式 / 漫画方向 / 屏幕方向）
             composable(Routes.READER_CONFIG) {
                 ReaderConfigScreen(onBack = { nav.popBackStack() })
+            }
+
+            // 隐私政策
+            composable(Routes.PRIVACY) {
+                PrivacyScreen(onBack = { nav.popBackStack() })
+            }
+
+            // 支持作者（微信收款码）
+            composable(Routes.SUPPORT) {
+                SupportScreen(onBack = { nav.popBackStack() })
             }
 
             // 分组书列表

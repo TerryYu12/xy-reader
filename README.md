@@ -115,6 +115,8 @@
 - 远程仓库（WebDAV / Google Drive）的地址与凭据仅存储在本机；
 - Google Drive 授权仅申请 `drive.readonly`（只读）权限，软件无法修改你网盘中的任何内容。
 
+完整隐私政策见 [PRIVACY.md](PRIVACY.md)（应用内「设置 → 隐私政策」同文）。
+
 ## 引用与致谢
 
 ### 开源组件
