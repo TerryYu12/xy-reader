@@ -18,6 +18,7 @@ backups/
 # ---- 签名密钥（永不入库）----
 *.jks
 *.keystore
+keystore.properties
 
 # ---- IDE / 系统 ----
 .idea/

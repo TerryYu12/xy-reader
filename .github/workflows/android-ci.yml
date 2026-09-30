@@ -42,6 +42,22 @@ jobs:
       - name: 单元测试
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
+      - name: 配置发布签名（secrets 未配置时回退调试签名）
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release-keystore.jks
+            printf 'storeFile=release-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+            echo "已写入发布签名配置（正式签名）"
+          else
+            echo "未配置签名 secrets，本次使用调试签名"
+          fi
+
       - name: 构建 Release APK
         run: ./gradlew :app:assembleRelease --console=plain
 
