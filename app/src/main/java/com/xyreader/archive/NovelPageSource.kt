@@ -76,6 +76,11 @@ data class NovelStyle(
      * 不改动文本本身——字符偏移锚点与「复制文字」还原不受影响。
      */
     val firstLineIndent: Boolean = false,
+    /**
+     * 章首另起一页：每章第一段强制从新页开始（上一页剩余空间留白、不补空页）。
+     * 由阅读器按配置传入；false 时沿用旧的连排行为。
+     */
+    val chapterNewPage: Boolean = false,
 )
 
 /** 一个文字段落：文本 + 所属章节序号（各格式解析器填充） */
@@ -137,6 +142,8 @@ internal data class NovelPageMetrics(
  * - 逐段构建 StaticLayout 记录行数，行数按页容量切分为若干
  *   [PageFragment]（paragraphIndex, startLine, lineCount），跨页段落被切成
  *   多个片段分属相邻页；页 = 有序片段列表，故 pageCount 在打开时固化。
+ * - 章首断页（[NovelStyle.chapterNewPage]）：章首段落前强制新页，上一页余量留白、
+ *   不补空页；章与章的页区间因此严格相邻（无重叠），章首页必为该章内容起始页。
  *
  * == 渲染 ==
  * 每页新建透明底 ARGB_8888 Bitmap → Canvas 平移 (paddingLeft, 首行槽位 y -
@@ -149,7 +156,7 @@ internal data class NovelPageMetrics(
  */
 class NovelPageSource internal constructor(
     private val paragraphs: List<Paragraph>,
-    chapterMarks: List<ChapterMark>,
+    private val chapterMarks: List<ChapterMark>,
     private val style: NovelStyle,
     displayMetrics: DisplayMetrics,
 ) : AbstractPageSource() {
@@ -292,7 +299,17 @@ class NovelPageSource internal constructor(
             usedLines = 0
         }
 
+        // 章首另起一页：章首段落前强制断页，上一页剩余空间留白、不补空页
+        // （flushPage 对空页无操作，段落 0 位于首页，天然不会产生前置空页）。
+        val chapterStarts: Set<Int> =
+            if (style.chapterNewPage) {
+                chapterMarks.mapTo(HashSet()) { it.paragraphIndex }
+            } else {
+                emptySet()
+            }
+
         paragraphs.forEachIndexed { paraIdx, paragraph ->
+            if (paraIdx in chapterStarts) flushPage()
             val layout = buildLayout(paragraph.text)
             val lineCount = layout.lineCount
             var startLine = 0

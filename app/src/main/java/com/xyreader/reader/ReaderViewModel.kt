@@ -183,6 +183,7 @@ class ReaderViewModel(
             prefs.novelMarginRightPx.toString(),
             prefs.novelLetterSpacingPx.toString(),
             prefs.novelFirstLineIndent.toString(),
+            prefs.novelChapterNewPage.toString(),
         ).joinToString("|")
 
     /** 背景色 → 文字小说正文字色：深背景配浅灰字，浅背景配深字 */
@@ -218,6 +219,7 @@ class ReaderViewModel(
                 bold = prefs.novelFontWeight == NovelFontWeight.BOLD,
             ),
             firstLineIndent = prefs.novelFirstLineIndent,
+            chapterNewPage = prefs.novelChapterNewPage,
         )
     }
 

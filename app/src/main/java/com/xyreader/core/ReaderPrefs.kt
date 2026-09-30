@@ -106,4 +106,9 @@ data class ReaderPrefs(
      * 默认开启——中文小说的标准排版。
      */
     val novelFirstLineIndent: Boolean = true,
+    /**
+     * 章首另起一页：每章第一段从新的一页开始（上一页剩余空间留白、不补空页）。
+     * 默认开启——主流阅读器惯例（阅读/Legado、KOReader 均如此）；关闭后章节连排。
+     */
+    val novelChapterNewPage: Boolean = true,
 )

@@ -69,6 +69,9 @@ private val KEY_NOVEL_LETTER_SPACING = stringPreferencesKey("novel_letter_spacin
 /** 首行缩进：缺省 true（中文小说标准排版，可关闭） */
 private val KEY_NOVEL_FIRST_LINE_INDENT = booleanPreferencesKey("novel_first_line_indent")
 
+/** 章首另起一页：缺省 true（主流阅读器惯例，可关闭） */
+private val KEY_NOVEL_CHAPTER_NEW_PAGE = booleanPreferencesKey("novel_chapter_new_page")
+
 /** 把存储的字符串解析回枚举；缺失或非法值回退到默认项 */
 private inline fun <reified T : Enum<T>> parseEnum(raw: String?, fallback: T): T =
     raw?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
@@ -132,6 +135,7 @@ class ReaderPrefsStore(context: Context) {
                 ?.coerceIn(-4f, 12f)
                 ?: 0f,
             novelFirstLineIndent = p[KEY_NOVEL_FIRST_LINE_INDENT] ?: true,
+            novelChapterNewPage = p[KEY_NOVEL_CHAPTER_NEW_PAGE] ?: true,
         )
     }
 
@@ -160,6 +164,7 @@ class ReaderPrefsStore(context: Context) {
             p[KEY_NOVEL_MARGIN_RIGHT] = prefs.novelMarginRightPx.coerceIn(0f, 96f).toString()
             p[KEY_NOVEL_LETTER_SPACING] = prefs.novelLetterSpacingPx.coerceIn(-4f, 12f).toString()
             p[KEY_NOVEL_FIRST_LINE_INDENT] = prefs.novelFirstLineIndent
+            p[KEY_NOVEL_CHAPTER_NEW_PAGE] = prefs.novelChapterNewPage
         }
     }
 }

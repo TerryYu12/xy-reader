@@ -51,6 +51,7 @@ class ReaderSheetCapsuleTest {
         // 点「字体」胶囊 → 第 3 组内容出现
         compose.onNodeWithText("字体").performClick()
         compose.waitUntil(timeoutMillis = 20_000) { visible("首行缩进") }
+        compose.waitUntil(timeoutMillis = 20_000) { visible("章首另起一页") }
 
         // 点「页面」胶囊 → 第 2 组内容出现
         compose.onNodeWithText("页面").performClick()

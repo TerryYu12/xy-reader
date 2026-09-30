@@ -33,6 +33,7 @@ class NovelRegressionTest {
         size: Float,
         weight: NovelFontWeight = NovelFontWeight.NORMAL,
         firstLineIndent: Boolean = false,
+        chapterNewPage: Boolean = false,
         lineSpacing: Float = 1.5f,
         marginTopPx: Float = 64f,
         marginBottomPx: Float = 64f,
@@ -48,6 +49,7 @@ class NovelRegressionTest {
             0xff222222.toInt(), size, 480, 800,
             fontWeight = weight,
             firstLineIndent = firstLineIndent,
+            chapterNewPage = chapterNewPage,
             lineSpacingMultiplier = lineSpacing,
             marginTopPx = marginTopPx,
             marginBottomPx = marginBottomPx,
@@ -205,6 +207,37 @@ class NovelRegressionTest {
             assertEquals(480, bitmap.width)
         } finally {
             indented.close()
+        }
+    }
+
+    /** 章首另起一页：每章从新页起排、页区间严格相邻；文本框起排与字符锚点不受影响。 */
+    @Test fun chapterNewPageStartsEachChapterOnFreshPage() = runBlocking {
+        val broken = source(19f, chapterNewPage = true)
+        val flowing = source(19f)
+        try {
+            assertEquals(5, broken.chapters.size)
+            assertTrue("章首分页不应减少总页数", broken.pageCount >= flowing.pageCount)
+            // 相邻章页区间严格相邻：上一章末页 + 1 = 下一章首页（不重叠、不留缝、不共页）
+            broken.chapters.zipWithNext().forEach { (a, b) ->
+                assertEquals(
+                    "章「${a.title}」与「${b.title}」的页区间不连续",
+                    a.endPageInclusive + 1, b.startPage,
+                )
+            }
+            // 每章首页必须以该章首段起排（第 i 章首段 = 第 i*10 段）
+            broken.chapters.forEachIndexed { index, chapter ->
+                val pageStart = broken.pageText(chapter.startPage)
+                assertTrue(
+                    "第 ${index + 1} 章首页应以章首段开始，实际开头: ${pageStart.take(12)}",
+                    pageStart.startsWith("第${index * 10}段"),
+                )
+            }
+            // 字符偏移锚点在章首分页下仍精确回位
+            val target = broken.chapters[2].startPage
+            assertEquals(target, broken.pageForCharOffset(broken.pageStartCharOffset(target)))
+        } finally {
+            broken.close()
+            flowing.close()
         }
     }
 }

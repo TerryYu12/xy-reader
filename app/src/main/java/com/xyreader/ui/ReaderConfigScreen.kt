@@ -385,6 +385,12 @@ private fun FontGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reader
             checked = prefs.novelFirstLineIndent,
             onChange = { value -> onUpdate { it.copy(novelFirstLineIndent = value) } },
         )
+        SwitchCard(
+            title = "章首另起一页",
+            hint = "每章从新的一页开始，上一页剩余空间留白（主流阅读器默认行为）；关闭后章节连排",
+            checked = prefs.novelChapterNewPage,
+            onChange = { value -> onUpdate { it.copy(novelChapterNewPage = value) } },
+        )
         Text(
             "内置字体：霞鹜文楷（SIL OFL 1.1）、朱雀仿宋（SIL OFL 1.1 · 璇玑造字）、" +
                 "MiSans（© 小米科技，依其字体许可用于本应用）。" +

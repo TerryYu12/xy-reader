@@ -1318,6 +1318,20 @@ private fun SheetFontGroup(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reade
             },
         )
     }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "章首另起一页",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Switch(
+            checked = prefs.novelChapterNewPage,
+            onCheckedChange = { value ->
+                onUpdate { it.copy(novelChapterNewPage = value) }
+            },
+        )
+    }
     Text(
         text = "仅文字小说使用这些排版设置",
         style = MaterialTheme.typography.bodySmall,

@@ -27,6 +27,7 @@ class PreferencesRoundTripTest {
             novelMarginRightPx = 28f,
             novelLetterSpacingPx = 2f,
             pageMode = PageMode.UP_DOWN,
+            novelChapterNewPage = false,
         )
         ReaderPrefsStore(context).set(expected)
         assertEquals(expected, ReaderPrefsStore(context).prefs.first())
