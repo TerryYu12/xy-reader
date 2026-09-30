@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
 import android.text.Layout
@@ -130,6 +131,15 @@ internal data class NovelPageMetrics(
     val paddingBottom: Float = 64f,
 )
 
+/** 分页页：文本片段或整页图片（二者互斥）。图片来自 EPUB 封面页 / 插图页（[EpubImageGroup]） */
+private class NovelPage(
+    val fragments: List<PageFragment>,
+    /** 整页图片字节（null = 文本页） */
+    val imageBytes: ByteArray? = null,
+    /** 图片页在段落流的插入位置（保存进度锚点用） */
+    val imageInsertIndex: Int = 0,
+)
+
 /**
  * 文字小说页面源（TXT / EPUB 文本版 / MOBI 文本版）：
  * 解析出的段落序列在构造时用 [StaticLayout] 预分页（跨页段落按行记断点），
@@ -162,6 +172,8 @@ class NovelPageSource internal constructor(
     displayMetrics: DisplayMetrics,
     /** 书内封面图字节（EPUB 可选）：renderCover 优先用；null 或解码失败回退第 0 页文字合成 */
     private val coverBytes: ByteArray? = null,
+    /** EPUB 整页图片组（封面页 / 插图页）：按段落流插入点穿插进分页；无则空表 */
+    private val imageGroups: List<EpubImageGroup> = emptyList(),
 ) : AbstractPageSource() {
 
     private val metrics = NovelPageMetrics(
@@ -211,8 +223,8 @@ class NovelPageSource internal constructor(
         (((metrics.pageHeightPx - metrics.paddingTop - metrics.paddingBottom) / lineHeightPx).toInt())
             .coerceAtLeast(1)
 
-    /** 分页结果：每页 = 有序片段列表（跨页段落被按行切开） */
-    private val pages: List<List<PageFragment>>
+    /** 分页结果：每个元素为文本页（片段列表）或整页图片页 */
+    private val pages: List<NovelPage>
 
     /** 每页首个文本片段在全书归一化文本中的偏移，用于样式重排后恢复邻近位置。 */
     private val pageStartOffsets: LongArray
@@ -238,6 +250,9 @@ class NovelPageSource internal constructor(
     /** 串行化渲染（LruCache get-or-build 与位图生成） */
     private val renderMutex = Mutex()
 
+    /** 整页图片绘制的画笔（双线性过滤） */
+    private val imagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+
     override val cachedPageCount: Int get() = pages.size
 
     init {
@@ -246,8 +261,15 @@ class NovelPageSource internal constructor(
         pageStartOffsets = LongArray(pages.size)
         var lastParagraph = -1
         var lastLayout: StaticLayout? = null
-        pages.forEachIndexed { pageIndex, fragments ->
-            val first = fragments.first()
+        pages.forEachIndexed { pageIndex, page ->
+            if (page.imageBytes != null) {
+                // 图片页：取插入点处的段落偏移（序列保持单调不降；恢复进度时落到相邻文本页）
+                pageStartOffsets[pageIndex] = paragraphStartOffsets[
+                    page.imageInsertIndex.coerceIn(0, paragraphStartOffsets.lastIndex)
+                ]
+                return@forEachIndexed
+            }
+            val first = page.fragments.first()
             if (first.paragraphIndex != lastParagraph) {
                 lastParagraph = first.paragraphIndex
                 lastLayout = buildLayout(paragraphs[lastParagraph].text)
@@ -287,19 +309,28 @@ class NovelPageSource internal constructor(
     // ---------- 分页 ----------
 
     /**
-     * 预分页：逐段构建 StaticLayout 统计行数，按页容量行数切出片段。
+     * 预分页：逐段构建 StaticLayout 统计行数，按页容量行数切出片段；
+     * 图片组（封面页/插图页）按插入点穿插为整页图片。
      * 返回（页表, 每段首行所在页序）。
      */
-    private fun paginate(): Pair<List<List<PageFragment>>, IntArray> {
-        val pagesOut = mutableListOf<List<PageFragment>>()
-        var currentPage = mutableListOf<PageFragment>()
+    private fun paginate(): Pair<List<NovelPage>, IntArray> {
+        val pagesOut = mutableListOf<NovelPage>()
+        var currentFrags = mutableListOf<PageFragment>()
         var usedLines = 0
         val firstPages = IntArray(paragraphs.size)
 
         fun flushPage() {
-            if (currentPage.isNotEmpty()) pagesOut += currentPage
-            currentPage = mutableListOf()
+            if (currentFrags.isNotEmpty()) pagesOut += NovelPage(currentFrags)
+            currentFrags = mutableListOf()
             usedLines = 0
+        }
+
+        /** 插入一组整页图片：先收尾当前文本页，再每张图独立成页 */
+        fun appendImageGroup(group: EpubImageGroup, atIndex: Int) {
+            flushPage()
+            group.images.forEach { bytes ->
+                pagesOut += NovelPage(emptyList(), imageBytes = bytes, imageInsertIndex = atIndex)
+            }
         }
 
         // 章首另起一页：章首段落前强制断页，上一页剩余空间留白、不补空页
@@ -311,7 +342,11 @@ class NovelPageSource internal constructor(
                 emptySet()
             }
 
+        val imageGroupsByIndex = imageGroups.groupBy { it.insertAtIndex }
+
         paragraphs.forEachIndexed { paraIdx, paragraph ->
+            // 段落前的整页图片（图片在文字之前；先收尾再插，不干扰章首断页语义）
+            imageGroupsByIndex[paraIdx]?.forEach { appendImageGroup(it, paraIdx) }
             if (paraIdx in chapterStarts) flushPage()
             val layout = buildLayout(paragraph.text)
             val lineCount = layout.lineCount
@@ -320,7 +355,7 @@ class NovelPageSource internal constructor(
             while (startLine < lineCount) {
                 if (usedLines == linesPerPage) flushPage()
                 val take = minOf(lineCount - startLine, linesPerPage - usedLines)
-                currentPage += PageFragment(paraIdx, startLine, take)
+                currentFrags += PageFragment(paraIdx, startLine, take)
                 if (firstFragment) {
                     firstPages[paraIdx] = pagesOut.size
                     firstFragment = false
@@ -329,6 +364,8 @@ class NovelPageSource internal constructor(
                 startLine += take
             }
         }
+        // 文本末尾的图片组（insertAtIndex == paragraphs.size）
+        imageGroupsByIndex[paragraphs.size]?.forEach { appendImageGroup(it, paragraphs.size) }
         flushPage()
         return pagesOut to firstPages
     }
@@ -392,14 +429,19 @@ class NovelPageSource internal constructor(
         checkPage(index)
         return renderMutex.withLock {
             withContext(Dispatchers.IO) {
-                val fragments = pages[index]
+                val page = pages[index]
                 // 透明底：不填色，pager 背景直接透出
                 val bitmap = Bitmap.createBitmap(
                     metrics.pageWidthPx, metrics.pageHeightPx, Bitmap.Config.ARGB_8888,
                 )
                 val canvas = Canvas(bitmap)
+                // 整页图片（EPUB 封面页 / 插图页）：等比居中描绘；解码失败留透明底不崩
+                page.imageBytes?.let { bytes ->
+                    drawImagePage(canvas, bytes)
+                    return@withContext bitmap.asImageBitmap()
+                }
                 var slot = 0
-                for (frag in fragments) {
+                for (frag in page.fragments) {
                     val layout = layoutFor(frag.paragraphIndex)
                     val top = metrics.paddingTop + slot * lineHeightPx
                     val bottom = metrics.paddingTop + (slot + frag.lineCount) * lineHeightPx
@@ -422,6 +464,23 @@ class NovelPageSource internal constructor(
         }
     }
 
+    /** 整页图片绘制：等比适合页面、居中；解码失败时不绘制（留透明底不崩） */
+    private fun drawImagePage(canvas: Canvas, bytes: ByteArray) {
+        val bmp = decodeDownsampledImage(
+            bytes, maxOf(metrics.pageWidthPx, metrics.pageHeightPx),
+        ) ?: return
+        val scale = minOf(
+            metrics.pageWidthPx / bmp.width.toFloat(),
+            metrics.pageHeightPx / bmp.height.toFloat(),
+        )
+        val drawWidth = bmp.width * scale
+        val drawHeight = bmp.height * scale
+        val left = (metrics.pageWidthPx - drawWidth) / 2f
+        val top = (metrics.pageHeightPx - drawHeight) / 2f
+        canvas.drawBitmap(bmp, null, RectF(left, top, left + drawWidth, top + drawHeight), imagePaint)
+        bmp.recycle()
+    }
+
     /** 取段落 StaticLayout：缓存未命中则构建并入缓存（调用方已持 renderMutex） */
     private fun layoutFor(paragraphIndex: Int): StaticLayout {
         layoutCache.get(paragraphIndex)?.let { return it }
@@ -438,7 +497,7 @@ class NovelPageSource internal constructor(
         checkPage(page)
         return renderMutex.withLock {
             withContext(Dispatchers.IO) {
-                pages[page].joinToString("\n") { frag ->
+                pages[page].fragments.joinToString("\n") { frag ->
                     val text = paragraphs[frag.paragraphIndex].text
                     val layout = layoutFor(frag.paragraphIndex)
                     val lastLine = (frag.startLine + frag.lineCount - 1)
@@ -458,7 +517,9 @@ class NovelPageSource internal constructor(
      */
     override suspend fun renderCover(): ImageBitmap {
         coverBytes?.let { bytes ->
-            withContext(Dispatchers.IO) { decodeCoverImage(bytes) }?.let { return it.asImageBitmap() }
+            withContext(Dispatchers.IO) {
+                decodeDownsampledImage(bytes, COVER_MIN_LONG_SIDE)
+            }?.let { return it.asImageBitmap() }
         }
         val page = renderPage(0)
         return withContext(Dispatchers.IO) {
@@ -472,13 +533,15 @@ class NovelPageSource internal constructor(
         }
     }
 
-    /** 解码书内封面图：先量尺寸再按 2 的幂降采样（长边压到 1024~2047），失败返回 null */
-    private fun decodeCoverImage(bytes: ByteArray): Bitmap? = runCatching {
+    /** 降采样解码：长边压到 [minLongSide, minLongSide×2)（2 的幂采样），失败返回 null */
+    private fun decodeDownsampledImage(bytes: ByteArray, minLongSide: Int): Bitmap? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
         var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= minLongSide.coerceAtLeast(1)) {
+            sample *= 2
+        }
         BitmapFactory.decodeByteArray(
             bytes,
             0,
@@ -496,6 +559,9 @@ class NovelPageSource internal constructor(
 
         /** 封面合成底色（近黑，与默认黑底浅字样式匹配） */
         private val COVER_BACKGROUND = 0xFF101010.toInt()
+
+        /** 书库封面解码目标长边下限（px） */
+        private const val COVER_MIN_LONG_SIDE = 1024
 
         /** 段落 StaticLayout 缓存容量 */
         private const val LAYOUT_CACHE_SIZE = 200
@@ -523,11 +589,12 @@ class NovelPageSource internal constructor(
             marks: List<ChapterMark>,
             style: NovelStyle?,
             coverBytes: ByteArray? = null,
+            imageGroups: List<EpubImageGroup> = emptyList(),
         ): NovelPageSource {
             if (paragraphs.isEmpty()) throw IOException("未解析到文本内容")
             return NovelPageSource(
                 paragraphs, marks, resolveStyle(context, style), context.resources.displayMetrics,
-                coverBytes,
+                coverBytes, imageGroups,
             )
         }
 

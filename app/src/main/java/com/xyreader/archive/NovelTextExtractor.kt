@@ -39,6 +39,15 @@ class EpubTextData(
     val marks: List<ChapterMark>,
     /** 书内封面图字节（meta cover → EPUB3 cover-image → 文件名兜底；无则 null）——由封面渲染使用 */
     val coverBytes: ByteArray? = null,
+    /** 整页图片组（封面页 / 插图页，按 spine 位次穿插进阅读流；无则空表） */
+    val imageGroups: List<EpubImageGroup> = emptyList(),
+)
+
+/** EPUB 纯图文档（封面页 / 插图页）：插入位置 + 图片字节序列（阅读时作为整页图片渲染） */
+class EpubImageGroup(
+    /** 插在 Paragraphs[insertAtIndex] 之前（== paragraphs.size 表示末尾） */
+    val insertAtIndex: Int,
+    val images: List<ByteArray>,
 )
 
 /**
@@ -132,10 +141,27 @@ object NovelTextExtractor {
     /** 封面图字节上限（防个别书用超大图当解析炸弹；正常封面远小于此） */
     private const val MAX_COVER_BYTES = 8 * 1024 * 1024
 
-    /** `<img` 探测（忽略大小写，限定制约字节避免误匹配 `<input` 等） */
-    private val IMG_TAG_REGEX = Regex("(?i)<img[\\s/>]")
+    /** 单张整页图字节上限 */
+    private const val MAX_PAGE_IMAGE_BYTES = 12 * 1024 * 1024
 
-    /** 首个文本条目含 <img> / spine 全无文本条目 → 图片版 EPUB，路由层回退图片管线 */
+    /** 单个文档最多提取的图片数 */
+    private const val MAX_IMAGES_PER_DOC = 64
+
+    /** 单个文档图片总字节上限 */
+    private const val MAX_IMAGES_TOTAL_BYTES = 40 * 1024 * 1024
+
+    /** 图片标记字符（把文档内图片标签原位替换为 \u0001n\u0001，清洗后按标记拆出图文顺序） */
+    private const val MARK_CHAR = '\u0001'
+
+    /** 组合匹配 `<img ...>` / `<image ...>` 全文标签（按文档顺序一次替换，保持图文相对次序） */
+    private val COMBINED_IMG_TAG_REGEX = Regex("""(?i)<(?:img|image)\b[^>]*>""")
+
+    /** 标签属性取值的三个预建正则（xlink:href 优先于 href） */
+    private val ATTR_SRC_REGEX = Regex("""(?i)\bsrc\s*=\s*["']([^"']+)["']""")
+    private val ATTR_XLINK_HREF_REGEX = Regex("""(?i)\bxlink:href\s*=\s*["']([^"']+)["']""")
+    private val ATTR_HREF_REGEX = Regex("""(?i)\bhref\s*=\s*["']([^"']+)["']""")
+
+    /** spine 全无文本条目 → 图片版 EPUB，路由层回退图片管线；文本条目均无内容时同样回退 */
     fun parseEpub(zip: ZipFile): EpubTextData {
         // 1. 条目索引（bomb 防御：条目数超限直接拒绝）
         val entryMap = HashMap<String, ZipArchiveEntry>()
@@ -177,30 +203,53 @@ object NovelTextExtractor {
             throw EpubImageBasedException("EPUB spine 中没有任何文本条目（图片版）")
         }
 
-        // 5. 图片版快速判定：首个文本条目含 <img> → 回退图片管线
+        // 5. 首个文本条目（缺失即回退图片管线）。
+        //    注：旧版"首文档含 <img> → 回退图片版"的快速判定已移除——文本管线现已支持文档内图片
+        //    （原位标记 → 整页图片页），封面用 <img> 的图文书不会再被误判为漫画；
+        //    纯图 EPUB 由下文"文本条目均未提取到内容"兜底回退。
         val firstEntry = resolveZipEntry(entryMap, textDocs[0].href, opfDir)
             ?: throw EpubImageBasedException("EPUB 首个文本条目缺失")
         val firstHtml = readEntryText(zip, firstEntry)
-        if (IMG_TAG_REGEX.containsMatchIn(firstHtml)) {
-            throw EpubImageBasedException("EPUB 首个内容文档包含 <img>（图片版）")
-        }
 
         // 6. 逐文档提取文本：每章 = 一个 spine 文档，章标题取该文档 <title>，缺省"第 N 节"。
-        //    提取为空（纯图页 / 空白页，如 SVG 包裹的封面页、插图页）的文档不生成空章节。
+        //    文档内图片原位标记后与文本保序拆出：纯图文档 → 整页图片组（不生成章节标记）；
+        //    图文混排文档 → 文本段落 + 按位置插入的图片组；无图无文本（空白页）→ 跳过。
         val paragraphs = mutableListOf<Paragraph>()
         val marks = mutableListOf<ChapterMark>()
+        val imageGroups = mutableListOf<EpubImageGroup>()
         textDocs.forEachIndexed { docIndex, item ->
-            val html = if (docIndex == 0) firstHtml else {
+            val (docEntry, html) = if (docIndex == 0) {
+                firstEntry to firstHtml
+            } else {
                 val entry = resolveZipEntry(entryMap, item.href, opfDir) ?: return@forEachIndexed
-                readEntryText(zip, entry)
+                entry to readEntryText(zip, entry)
             }
-            val docTexts = htmlToParagraphs(html)
-            if (docTexts.isEmpty()) return@forEachIndexed
+            val docDir = docEntry.name.substringBeforeLast('/', "")
+            val (markedHtml, docImages) = extractAndMarkImages(zip, entryMap, docDir, html)
+            val segments = splitMarkedLines(htmlToParagraphs(markedHtml), docImages)
+            val docTexts = segments.filterIsInstance<HtmlSegment.Text>().filter { it.text.isNotEmpty() }
+            if (docTexts.isEmpty()) {
+                val images = segments.filterIsInstance<HtmlSegment.Image>().map { it.bytes }
+                if (images.isNotEmpty()) {
+                    imageGroups += EpubImageGroup(insertAtIndex = paragraphs.size, images = images)
+                }
+                return@forEachIndexed
+            }
             marks += ChapterMark(
                 title = extractHtmlTitle(html) ?: "第 ${docIndex + 1} 节",
                 paragraphIndex = paragraphs.size,
             )
-            docTexts.forEach { paragraphs += Paragraph(text = it, chapterIndex = docIndex) }
+            for (segment in segments) {
+                when (segment) {
+                    is HtmlSegment.Text ->
+                        if (segment.text.isNotEmpty()) paragraphs += Paragraph(segment.text, docIndex)
+                    is HtmlSegment.Image ->
+                        imageGroups += EpubImageGroup(
+                            insertAtIndex = paragraphs.size,
+                            images = listOf(segment.bytes),
+                        )
+                }
+            }
         }
         if (paragraphs.isEmpty()) {
             throw EpubImageBasedException("EPUB 文本条目均未提取到内容（图片版）")
@@ -210,7 +259,7 @@ object NovelTextExtractor {
         //    读取失败返回 null 不阻断（封面渲染会回退为文字页合成）
         val coverBytes = resolveCoverEntry(entryMap, parsed, opfDir)
             ?.let { readEntryBytes(zip, it, MAX_COVER_BYTES) }
-        return EpubTextData(paragraphs, marks, coverBytes)
+        return EpubTextData(paragraphs, marks, coverBytes, imageGroups)
     }
 
     /** OPF 解析结果：manifest 的 id → (href, media-type)，spine 的 idref 顺序 */
@@ -333,6 +382,88 @@ object NovelTextExtractor {
         } catch (e: Exception) {
             null // 封面可选，读取失败不阻断解析
         }
+    }
+
+    /**
+     * 文档内图片提取 + 原位标记：按文档顺序把 `<img>` / SVG `<image>` 标签替换为
+     * `\u0001n\u0001` 标记（n 与返回的图片字节表下标对应）；提取失败的标签替换为空串。
+     * 返回（标记后的 HTML, 图片字节表）。
+     */
+    private fun extractAndMarkImages(
+        zip: ZipFile,
+        entryMap: Map<String, ZipArchiveEntry>,
+        docDir: String,
+        html: String,
+    ): Pair<String, List<ByteArray>> {
+        val images = mutableListOf<ByteArray>()
+        var total = 0
+
+        fun replacement(match: MatchResult): String {
+            if (images.size >= MAX_IMAGES_PER_DOC || total >= MAX_IMAGES_TOTAL_BYTES) return ""
+            val tag = match.value
+            val ref = ATTR_SRC_REGEX.find(tag)?.groupValues?.get(1)
+                ?: ATTR_XLINK_HREF_REGEX.find(tag)?.groupValues?.get(1)
+                ?: ATTR_HREF_REGEX.find(tag)?.groupValues?.get(1)
+                ?: return ""
+            val path = resolveRefPath(docDir, ref) ?: return ""
+            val entry = entryMap[path] ?: entryMap[urlDecode(path)] ?: return ""
+            val bytes = readEntryBytes(zip, entry, MAX_PAGE_IMAGE_BYTES) ?: return ""
+            total += bytes.size
+            if (total > MAX_IMAGES_TOTAL_BYTES) return ""
+            val index = images.size
+            images += bytes
+            return "$MARK_CHAR$index$MARK_CHAR"
+        }
+
+        val marked = COMBINED_IMG_TAG_REGEX.replace(html) { replacement(it) }
+        return marked to images
+    }
+
+    /** 把含图片标记的清洗行拆成 文本/图片 片段序列（保持文档内相对次序） */
+    private fun splitMarkedLines(lines: List<String>, images: List<ByteArray>): List<HtmlSegment> {
+        val out = mutableListOf<HtmlSegment>()
+        for (line in lines) {
+            var cursor = 0
+            while (true) {
+                val start = line.indexOf(MARK_CHAR, cursor)
+                if (start < 0) break
+                val end = line.indexOf(MARK_CHAR, start + 1)
+                if (end < 0) break
+                val before = line.substring(cursor, start).trim()
+                if (before.isNotEmpty()) out += HtmlSegment.Text(before)
+                val index = line.substring(start + 1, end).toIntOrNull()
+                val bytes = index?.let { images.getOrNull(it) }
+                if (bytes != null) out += HtmlSegment.Image(bytes)
+                cursor = end + 1
+            }
+            val tail = line.substring(cursor).trim()
+            if (tail.isNotEmpty()) out += HtmlSegment.Text(tail)
+        }
+        return out
+    }
+
+    /** 相对文档目录解析引用路径（../、./ 规范化）；外部/数据 URI 返回 null */
+    private fun resolveRefPath(docDir: String, ref: String): String? {
+        val clean = ref.substringBefore('#').trim()
+        if (clean.isEmpty() || clean.startsWith("data:", ignoreCase = true) || clean.contains("://")) {
+            return null
+        }
+        val combined = if (docDir.isEmpty()) clean else "$docDir/$clean"
+        val stack = ArrayDeque<String>()
+        for (part in combined.split('/')) {
+            when (part) {
+                "", "." -> {}
+                ".." -> if (stack.isNotEmpty()) stack.removeLast()
+                else -> stack += part
+            }
+        }
+        return if (stack.isEmpty()) null else stack.joinToString("/")
+    }
+
+    /** XHTML 文档内的图文片段：清洗后的文本或一张图片（字节） */
+    private sealed interface HtmlSegment {
+        class Text(val text: String) : HtmlSegment
+        class Image(val bytes: ByteArray) : HtmlSegment
     }
 
     // ==================================================================
