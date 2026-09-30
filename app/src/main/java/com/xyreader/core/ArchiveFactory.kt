@@ -227,7 +227,7 @@ object ArchiveFactory {
         try {
             zip = ZipFile(channel)
             val data = NovelTextExtractor.parseEpub(zip)
-            val source = NovelPageSource.open(context, data.paragraphs, data.marks, style)
+            val source = NovelPageSource.open(context, data.paragraphs, data.marks, style, data.coverBytes)
             runCatching { zip.close() }
             runCatching { channel.close() }
             runCatching { release() }

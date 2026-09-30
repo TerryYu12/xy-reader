@@ -2,6 +2,7 @@ package com.xyreader.archive
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -159,6 +160,8 @@ class NovelPageSource internal constructor(
     private val chapterMarks: List<ChapterMark>,
     private val style: NovelStyle,
     displayMetrics: DisplayMetrics,
+    /** 书内封面图字节（EPUB 可选）：renderCover 优先用；null 或解码失败回退第 0 页文字合成 */
+    private val coverBytes: ByteArray? = null,
 ) : AbstractPageSource() {
 
     private val metrics = NovelPageMetrics(
@@ -449,10 +452,14 @@ class NovelPageSource internal constructor(
     }
 
     /**
-     * 封面：文字页是透明底，直接作封面在书架上会"全透明"——把第 0 页合成到
-     * 不透明深色底上（封面生成链路固定走默认样式=黑底浅字，深底与字色匹配）。
+     * 封面：书内封面图（EPUB，可选）优先——直接解码返回；
+     * 无封面图或解码失败时回退第 0 页文字合成：文字页是透明底，直接作封面在书架上会"全透明"——
+     * 把第 0 页合成到不透明深色底上（封面生成链路固定走默认样式=黑底浅字，深底与字色匹配）。
      */
     override suspend fun renderCover(): ImageBitmap {
+        coverBytes?.let { bytes ->
+            withContext(Dispatchers.IO) { decodeCoverImage(bytes) }?.let { return it.asImageBitmap() }
+        }
         val page = renderPage(0)
         return withContext(Dispatchers.IO) {
             val src = page.asAndroidBitmap()
@@ -464,6 +471,21 @@ class NovelPageSource internal constructor(
             out.asImageBitmap()
         }
     }
+
+    /** 解码书内封面图：先量尺寸再按 2 的幂降采样（长边压到 1024~2047），失败返回 null */
+    private fun decodeCoverImage(bytes: ByteArray): Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2
+        BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        )
+    }.getOrNull()
 
     /** 无底层资源（文本已在内存）：清空排版缓存并置关闭标志（checkPage 此后拒绝渲染） */
     override fun close() = onFirstClose {
@@ -500,10 +522,12 @@ class NovelPageSource internal constructor(
             paragraphs: List<Paragraph>,
             marks: List<ChapterMark>,
             style: NovelStyle?,
+            coverBytes: ByteArray? = null,
         ): NovelPageSource {
             if (paragraphs.isEmpty()) throw IOException("未解析到文本内容")
             return NovelPageSource(
                 paragraphs, marks, resolveStyle(context, style), context.resources.displayMetrics,
+                coverBytes,
             )
         }
 

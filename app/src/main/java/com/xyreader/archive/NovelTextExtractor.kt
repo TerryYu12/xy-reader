@@ -4,6 +4,7 @@ import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipFile
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.StringReader
 import java.nio.ByteBuffer
@@ -32,8 +33,13 @@ class EpubImageBasedException(message: String) : IOException(message)
 internal class MobiNotTextException(message: String = "该 MOBI/AZW3 为图片版或暂不支持，转图片管线") :
     IOException(message)
 
-/** EPUB 文本版解析结果：段落序列（chapterIndex = spine 文本文档序号）+ 每文档一个章节标记 */
-class EpubTextData(val paragraphs: List<Paragraph>, val marks: List<ChapterMark>)
+/** EPUB 文本版解析结果：段落序列（chapterIndex = spine 文本文档序号）+ 每文档一个章节标记 + 可选书内封面 */
+class EpubTextData(
+    val paragraphs: List<Paragraph>,
+    val marks: List<ChapterMark>,
+    /** 书内封面图字节（meta cover → EPUB3 cover-image → 文件名兜底；无则 null）——由封面渲染使用 */
+    val coverBytes: ByteArray? = null,
+)
 
 /**
  * 文字小说解析器（TXT / EPUB 文本版 / MOBI 文本版）：
@@ -120,6 +126,12 @@ object NovelTextExtractor {
     /** EPUB spine 认可的文本 media-type（部分老 EPUB media-type 缺失时按扩展名兜底） */
     private val EPUB_TEXT_MEDIA_TYPES = setOf("application/xhtml+xml", "text/html")
 
+    /** 封面图扩展名兜底集（media-type 缺失的老书按扩展名识别） */
+    private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
+
+    /** 封面图字节上限（防个别书用超大图当解析炸弹；正常封面远小于此） */
+    private const val MAX_COVER_BYTES = 8 * 1024 * 1024
+
     /** `<img` 探测（忽略大小写，限定制约字节避免误匹配 `<input` 等） */
     private val IMG_TAG_REGEX = Regex("(?i)<img[\\s/>]")
 
@@ -173,7 +185,8 @@ object NovelTextExtractor {
             throw EpubImageBasedException("EPUB 首个内容文档包含 <img>（图片版）")
         }
 
-        // 6. 逐文档提取文本：每章 = 一个 spine 文档，章标题取该文档 <title>，缺省"第 N 节"
+        // 6. 逐文档提取文本：每章 = 一个 spine 文档，章标题取该文档 <title>，缺省"第 N 节"。
+        //    提取为空（纯图页 / 空白页，如 SVG 包裹的封面页、插图页）的文档不生成空章节。
         val paragraphs = mutableListOf<Paragraph>()
         val marks = mutableListOf<ChapterMark>()
         textDocs.forEachIndexed { docIndex, item ->
@@ -181,25 +194,34 @@ object NovelTextExtractor {
                 val entry = resolveZipEntry(entryMap, item.href, opfDir) ?: return@forEachIndexed
                 readEntryText(zip, entry)
             }
+            val docTexts = htmlToParagraphs(html)
+            if (docTexts.isEmpty()) return@forEachIndexed
             marks += ChapterMark(
                 title = extractHtmlTitle(html) ?: "第 ${docIndex + 1} 节",
                 paragraphIndex = paragraphs.size,
             )
-            htmlToParagraphs(html).forEach { paragraphs += Paragraph(text = it, chapterIndex = docIndex) }
+            docTexts.forEach { paragraphs += Paragraph(text = it, chapterIndex = docIndex) }
         }
         if (paragraphs.isEmpty()) {
             throw EpubImageBasedException("EPUB 文本条目均未提取到内容（图片版）")
         }
-        return EpubTextData(paragraphs, marks)
+
+        // 7. 书内封面图（可选）：meta cover → EPUB3 cover-image → 文件名兜底；
+        //    读取失败返回 null 不阻断（封面渲染会回退为文字页合成）
+        val coverBytes = resolveCoverEntry(entryMap, parsed, opfDir)
+            ?.let { readEntryBytes(zip, it, MAX_COVER_BYTES) }
+        return EpubTextData(paragraphs, marks, coverBytes)
     }
 
     /** OPF 解析结果：manifest 的 id → (href, media-type)，spine 的 idref 顺序 */
     private class OpfData(
         val manifest: MutableMap<String, OpfItem> = mutableMapOf(),
         val spineRefs: MutableList<String> = mutableListOf(),
+        /** <meta name="cover" content="...">（EPUB2；content 多为 manifest id，也可能是文件名） */
+        var metaCoverContent: String? = null,
     )
 
-    private class OpfItem(val href: String, val mediaType: String)
+    private class OpfItem(val href: String, val mediaType: String, val properties: String = "")
 
     /** 用 Android 自带 XmlPullParser 解析 OPF（manifest + spine），不引第三方 XML 库 */
     private fun parseOpf(opfXml: String): OpfData {
@@ -222,11 +244,17 @@ object NovelTextExtractor {
                                 data.manifest[id] = OpfItem(
                                     href = href,
                                     mediaType = parser.getAttributeValue(null, "media-type").orEmpty(),
+                                    properties = parser.getAttributeValue(null, "properties").orEmpty(),
                                 )
                             }
                         }
                         "itemref" -> if (inSpine) {
                             parser.getAttributeValue(null, "idref")?.let { data.spineRefs += it }
+                        }
+                        // EPUB2 惯用封面声明：<meta name="cover" content="manifest-id 或文件名">
+                        "meta" -> if (parser.getAttributeValue(null, "name").equals("cover", ignoreCase = true)) {
+                            data.metaCoverContent = parser.getAttributeValue(null, "content")
+                                ?.trim()?.takeIf { it.isNotEmpty() }
                         }
                     }
                     XmlPullParser.END_TAG -> when (parser.name.lowercase(Locale.US)) {
@@ -254,6 +282,57 @@ object NovelTextExtractor {
         return entryMap[joined]
             ?: entryMap[urlDecode(joined)]
             ?: entryMap[urlDecode(clean)] // 个别 EPUB 的 href 相对 zip 根
+    }
+
+    /** 封面条目解析：meta cover（id 或文件名）→ EPUB3 cover-image 属性 → 文件名含 cover 的图片 */
+    private fun resolveCoverEntry(
+        entryMap: Map<String, ZipArchiveEntry>,
+        parsed: OpfData,
+        opfDir: String,
+    ): ZipArchiveEntry? {
+        // 1) EPUB2 惯用：<meta name="cover" content="...">——先按 manifest id 查，再按路径/文件名直接解析
+        parsed.metaCoverContent?.let { content ->
+            val byId = parsed.manifest[content]
+            if (byId != null && isImageItem(byId)) {
+                resolveZipEntry(entryMap, byId.href, opfDir)?.let { return it }
+            }
+            resolveZipEntry(entryMap, content, opfDir)?.let { return it }
+        }
+        // 2) EPUB3：manifest item 的 properties 含 cover-image
+        parsed.manifest.values.firstOrNull { it.properties.split(' ').contains("cover-image") }
+            ?.let { item -> resolveZipEntry(entryMap, item.href, opfDir)?.let { return it } }
+        // 3) 文件名兜底：href 含 cover 且是图片条目
+        parsed.manifest.values.firstOrNull { isImageItem(it) && it.href.lowercase(Locale.US).contains("cover") }
+            ?.let { item -> resolveZipEntry(entryMap, item.href, opfDir)?.let { return it } }
+        return null
+    }
+
+    /** 是否图片条目：media-type 以 image/ 开头，或按扩展名兜底 */
+    private fun isImageItem(item: OpfItem): Boolean {
+        if (item.mediaType.startsWith("image/", ignoreCase = true)) return true
+        return item.href.substringAfterLast('.', "").lowercase(Locale.US) in IMAGE_EXTS
+    }
+
+    /** 读取 zip 条目字节（封面用）：声明尺寸 + 实际读取量双重限幅，超限/失败返回 null */
+    private fun readEntryBytes(zip: ZipFile, entry: ZipArchiveEntry, limit: Int): ByteArray? {
+        if (entry.size > limit) return null
+        return try {
+            zip.getInputStream(entry).use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > limit) return null
+                    out.write(buf, 0, n)
+                }
+                out.toByteArray()
+            }
+        } catch (e: Exception) {
+            null // 封面可选，读取失败不阻断解析
+        }
     }
 
     // ==================================================================
@@ -498,6 +577,12 @@ object NovelTextExtractor {
     // HTML/XHTML → 纯文本段落（EPUB 与 MOBI 共用）
     // ==================================================================
 
+    /** 去掉整块 <head>（EPUB 的 <title>/<meta> 不属于正文；MOBI 片段无 head 时无操作） */
+    private val HEAD_REGEX = Regex(
+        "<head[^>]*>.*?</head>",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+    )
+
     /** 去掉 <style>/<script> 块（含内容），忽略大小写、跨行 */
     private val SCRIPT_STYLE_REGEX = Regex(
         "<(script|style)[^>]*>.*?</\\s*\\1\\s*>",
@@ -564,11 +649,13 @@ object NovelTextExtractor {
 
     /**
      * HTML → 纯文本段落列表：
-     * 1) 去 <style>/<script> 块与注释；2) <br> 与块级标签边界转换行；3) 正则去全部剩余标签；
+     * 1) 去 <head> 整块（title/meta 不属于正文，否则封面页会只剩"封面"二字）、<style>/<script> 块与注释；
+     * 2) <br> 与块级标签边界转换行；3) 正则去全部剩余标签；
      * 4) 实体解码；5) 按换行切分、trim、去空行。每行即一段（EPUB/MOBI 源文件的段落即行）。
      */
     fun htmlToParagraphs(html: String): List<String> {
         var s = html
+        s = HEAD_REGEX.replace(s, "")
         s = SCRIPT_STYLE_REGEX.replace(s, "")
         s = COMMENT_REGEX.replace(s, "")
         s = BR_REGEX.replace(s, "\n")
