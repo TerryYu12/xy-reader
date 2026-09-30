@@ -21,7 +21,7 @@
 
 - **Local repositories**: add any local folder as a repository and scan it into your library; multiple repositories supported;
 - **Remote repositories**:
-  - WebDAV — works with Jianguo Cloud (坚果云), Alist, InfiniCLOUD and similar services;
+  - WebDAV — works with Nutstore (坚果云), Alist, InfiniCLOUD and similar services;
   - Google Drive — OAuth authorization (read-only scope); ZIP / 7Z / TAR are streamed page-by-page on demand, RAR / PDF are downloaded to cache on first open;
 - **Organization**: groups, favorites, reading history, and bookmarks in one place;
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
@@ -93,7 +93,7 @@ Open from the reading toolbar, or go to **Settings → Reading configuration**. 
 ### 4. Add a WebDAV repository
 
 1. Go to **Settings → Remote repositories** and tap **+**;
-2. Enter the server address, username and password. For example, Jianguo Cloud (坚果云) uses `https://dav.jianguoyun.com/dav/` — the password must be an **app password** (Jianguo Cloud: Account info → Security options → Add app password), not your login password. Alist, InfiniCLOUD and similar services work the same way;
+2. Enter the server address, username and password. For example, Nutstore (坚果云) uses `https://dav.jianguoyun.com/dav/` — the password must be an **app password** (Nutstore: Account info → Security options → Add app password), not your login password. Alist, InfiniCLOUD and similar services work the same way;
 3. Tap **Test connection**; once it succeeds, save and tap **Scan** to bring cloud books into your library.
 
 ### 5. Add a Google Drive repository
