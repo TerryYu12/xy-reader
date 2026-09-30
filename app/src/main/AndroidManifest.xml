@@ -2,12 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 网络访问：远程仓库（WebDAV / Google Drive）必需 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 允许明文 HTTP（usesCleartextTraffic）：兼容自建服务器（Alist、局域网 WebDAV 等默认 http）。
+         公网服务（坚果云 / Google Drive）本身走 HTTPS，不受此开关影响。 -->
     <application
         android:name=".ArkApp"
         android:allowBackup="true"
         android:label="XY-READER"
         android:icon="@mipmap/ic_launcher"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.ArkReader">
 
         <activity
