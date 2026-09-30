@@ -33,6 +33,12 @@ class NovelRegressionTest {
         size: Float,
         weight: NovelFontWeight = NovelFontWeight.NORMAL,
         firstLineIndent: Boolean = false,
+        lineSpacing: Float = 1.5f,
+        marginTopPx: Float = 64f,
+        marginBottomPx: Float = 64f,
+        marginLeftPx: Float = 48f,
+        marginRightPx: Float = 48f,
+        letterSpacingPx: Float = 0f,
     ): NovelPageSource = NovelPageSource(
         paragraphs = List(50) { i ->
             Paragraph("第${i}段：中文排版测试。字体变大以后，一页能容纳的字数应当减少。".repeat(8), i / 10)
@@ -42,6 +48,12 @@ class NovelRegressionTest {
             0xff222222.toInt(), size, 480, 800,
             fontWeight = weight,
             firstLineIndent = firstLineIndent,
+            lineSpacingMultiplier = lineSpacing,
+            marginTopPx = marginTopPx,
+            marginBottomPx = marginBottomPx,
+            marginLeftPx = marginLeftPx,
+            marginRightPx = marginRightPx,
+            letterSpacingPx = letterSpacingPx,
         ),
         displayMetrics = metrics,
     )
@@ -57,6 +69,42 @@ class NovelRegressionTest {
         } finally {
             small.close()
             large.close()
+        }
+    }
+
+    @Test fun lineSpacingAndFourMarginsChangePagination() {
+        val baseline = source(19f)
+        val largerLeftMargin = source(19f, marginLeftPx = 80f)
+        val largerRightMargin = source(19f, marginRightPx = 80f)
+        val largerTopMargin = source(19f, marginTopPx = 88f)
+        val largerBottomMargin = source(19f, marginBottomPx = 88f)
+        val looseLineSpacing = source(19f, lineSpacing = 2f)
+        try {
+            assertTrue("左边距增大应缩窄正文并增加页数", largerLeftMargin.pageCount > baseline.pageCount)
+            assertTrue("右边距增大应缩窄正文并增加页数", largerRightMargin.pageCount > baseline.pageCount)
+            assertTrue("上边距增大应减少每页行数", largerTopMargin.pageCount > baseline.pageCount)
+            assertTrue("下边距增大应减少每页行数", largerBottomMargin.pageCount > baseline.pageCount)
+            assertTrue("行距增大应增加页数", looseLineSpacing.pageCount > baseline.pageCount)
+        } finally {
+            baseline.close()
+            largerLeftMargin.close()
+            largerRightMargin.close()
+            largerTopMargin.close()
+            largerBottomMargin.close()
+            looseLineSpacing.close()
+        }
+    }
+
+    @Test fun letterSpacingChangesRenderedNovelText() = runBlocking {
+        val normal = source(19f)
+        val spaced = source(19f, letterSpacingPx = 3f)
+        try {
+            val normalBitmap = normal.renderPage(0).asAndroidBitmap()
+            val spacedBitmap = spaced.renderPage(0).asAndroidBitmap()
+            assertFalse("字间距设置必须改变实际位图", normalBitmap.sameAs(spacedBitmap))
+        } finally {
+            normal.close()
+            spaced.close()
         }
     }
 

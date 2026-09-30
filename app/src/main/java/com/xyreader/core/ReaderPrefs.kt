@@ -92,6 +92,15 @@ data class ReaderPrefs(
     val novelCustomFont: String? = null,
     /** 文字小说字重 */
     val novelFontWeight: NovelFontWeight = NovelFontWeight.NORMAL,
+    /** 小说正文行距倍率；1.5 保持旧版固定行距。 */
+    val novelLineSpacingMultiplier: Float = 1.5f,
+    /** 小说正文页边距，单位 px；默认值保持旧版排版。 */
+    val novelMarginTopPx: Float = 64f,
+    val novelMarginBottomPx: Float = 64f,
+    val novelMarginLeftPx: Float = 48f,
+    val novelMarginRightPx: Float = 48f,
+    /** 字符间距，单位 px；0 表示沿用字体原始字距。 */
+    val novelLetterSpacingPx: Float = 0f,
     /**
      * 首行缩进：每段首行缩进 2 个全角字符宽（段落已有前导空白的按总宽对齐、不叠加）。
      * 默认开启——中文小说的标准排版。

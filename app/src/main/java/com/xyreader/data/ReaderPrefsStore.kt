@@ -58,6 +58,14 @@ private val KEY_NOVEL_FONT_WEIGHT = stringPreferencesKey("novel_font_weight")
 /** 导入的自定义字体文件名；空串/缺失 = 未选导入字体（用枚举字体族） */
 private val KEY_NOVEL_CUSTOM_FONT = stringPreferencesKey("novel_custom_font")
 
+/** 小说正文行距倍率、四边页边距（px）和字间距（px） */
+private val KEY_NOVEL_LINE_SPACING = stringPreferencesKey("novel_line_spacing")
+private val KEY_NOVEL_MARGIN_TOP = stringPreferencesKey("novel_margin_top_px")
+private val KEY_NOVEL_MARGIN_BOTTOM = stringPreferencesKey("novel_margin_bottom_px")
+private val KEY_NOVEL_MARGIN_LEFT = stringPreferencesKey("novel_margin_left_px")
+private val KEY_NOVEL_MARGIN_RIGHT = stringPreferencesKey("novel_margin_right_px")
+private val KEY_NOVEL_LETTER_SPACING = stringPreferencesKey("novel_letter_spacing_px")
+
 /** 首行缩进：缺省 true（中文小说标准排版，可关闭） */
 private val KEY_NOVEL_FIRST_LINE_INDENT = booleanPreferencesKey("novel_first_line_indent")
 
@@ -99,6 +107,30 @@ class ReaderPrefsStore(context: Context) {
             novelFontFamily = parseEnum(p[KEY_NOVEL_FONT_FAMILY], NovelFontFamily.SYSTEM_SANS),
             novelCustomFont = p[KEY_NOVEL_CUSTOM_FONT]?.takeIf { it.isNotBlank() },
             novelFontWeight = parseEnum(p[KEY_NOVEL_FONT_WEIGHT], NovelFontWeight.NORMAL),
+            novelLineSpacingMultiplier = p[KEY_NOVEL_LINE_SPACING]
+                ?.toFloatOrNull()
+                ?.coerceIn(0.8f, 2.5f)
+                ?: 1.5f,
+            novelMarginTopPx = p[KEY_NOVEL_MARGIN_TOP]
+                ?.toFloatOrNull()
+                ?.coerceIn(0f, 96f)
+                ?: 64f,
+            novelMarginBottomPx = p[KEY_NOVEL_MARGIN_BOTTOM]
+                ?.toFloatOrNull()
+                ?.coerceIn(0f, 96f)
+                ?: 64f,
+            novelMarginLeftPx = p[KEY_NOVEL_MARGIN_LEFT]
+                ?.toFloatOrNull()
+                ?.coerceIn(0f, 96f)
+                ?: 48f,
+            novelMarginRightPx = p[KEY_NOVEL_MARGIN_RIGHT]
+                ?.toFloatOrNull()
+                ?.coerceIn(0f, 96f)
+                ?: 48f,
+            novelLetterSpacingPx = p[KEY_NOVEL_LETTER_SPACING]
+                ?.toFloatOrNull()
+                ?.coerceIn(-4f, 12f)
+                ?: 0f,
             novelFirstLineIndent = p[KEY_NOVEL_FIRST_LINE_INDENT] ?: true,
         )
     }
@@ -121,6 +153,12 @@ class ReaderPrefsStore(context: Context) {
             p[KEY_NOVEL_FONT_FAMILY] = prefs.novelFontFamily.name
             p[KEY_NOVEL_CUSTOM_FONT] = prefs.novelCustomFont.orEmpty()
             p[KEY_NOVEL_FONT_WEIGHT] = prefs.novelFontWeight.name
+            p[KEY_NOVEL_LINE_SPACING] = prefs.novelLineSpacingMultiplier.coerceIn(0.8f, 2.5f).toString()
+            p[KEY_NOVEL_MARGIN_TOP] = prefs.novelMarginTopPx.coerceIn(0f, 96f).toString()
+            p[KEY_NOVEL_MARGIN_BOTTOM] = prefs.novelMarginBottomPx.coerceIn(0f, 96f).toString()
+            p[KEY_NOVEL_MARGIN_LEFT] = prefs.novelMarginLeftPx.coerceIn(0f, 96f).toString()
+            p[KEY_NOVEL_MARGIN_RIGHT] = prefs.novelMarginRightPx.coerceIn(0f, 96f).toString()
+            p[KEY_NOVEL_LETTER_SPACING] = prefs.novelLetterSpacingPx.coerceIn(-4f, 12f).toString()
             p[KEY_NOVEL_FIRST_LINE_INDENT] = prefs.novelFirstLineIndent
         }
     }

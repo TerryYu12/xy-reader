@@ -136,6 +136,7 @@ import com.xyreader.core.ReaderPrefs
 import com.xyreader.core.ScreenOrientation
 import com.xyreader.ui.formatDate
 import com.xyreader.ui.CapsuleTab
+import com.xyreader.ui.NovelSpacingControls
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1302,6 +1303,7 @@ private fun SheetFontGroup(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reade
             steps = 23,
         )
     }
+    NovelSpacingControls(prefs = prefs, onUpdate = onUpdate, compact = true)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "首行缩进",
@@ -1317,7 +1319,7 @@ private fun SheetFontGroup(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reade
         )
     }
     Text(
-        text = "仅文字小说使用这些字体设置",
+        text = "仅文字小说使用这些排版设置",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

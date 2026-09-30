@@ -78,7 +78,7 @@ private val CONFIG_TABS = listOf("翻页模式", "页面", "字体")
 
 /**
  * 阅读配置管理页：顶部胶囊分组 + 横向分页（取代早期整页上下滑动）。
- * 修改立即持久化；小说排版设置（字体/字重/字号）对打开中的文字书即时重分页。
+ * 修改立即持久化；小说字体与排版设置对打开中的文字书即时重分页。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -343,7 +343,7 @@ private fun FontGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reader
 
     GroupPage(scrollable = true) {
         Text(
-            "字体设置只对文字小说生效（TXT / 文字版 EPUB / 文字版 MOBI）",
+            "字体与间距设置只对文字小说生效（TXT / 文字版 EPUB / 文字版 MOBI）",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -378,6 +378,7 @@ private fun FontGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reader
                 onUpdate { it.copy(novelFontSize = nearestLegacy, novelFontSizeSp = value) }
             },
         )
+        NovelSpacingControls(prefs = prefs, onUpdate = onUpdate)
         SwitchCard(
             title = "首行缩进",
             hint = "每段首行缩进 2 个字符；段落已带空白缩进时按总宽对齐，不叠加",

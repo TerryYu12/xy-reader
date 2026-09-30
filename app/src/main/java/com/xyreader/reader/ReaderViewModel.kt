@@ -168,7 +168,7 @@ class ReaderViewModel(
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val events: SharedFlow<String> = _events.asSharedFlow()
 
-    /** 样式键：背景色、字号、字体族或字重变化都要重建小说排版。 */
+    /** 样式键：小说文字样式与版面参数变化都要重建排版。 */
     private fun styleKey(prefs: ReaderPrefs): String =
         listOf(
             prefs.readBackground.name,
@@ -176,6 +176,12 @@ class ReaderViewModel(
             prefs.novelFontFamily.name,
             prefs.novelCustomFont.orEmpty(),
             prefs.novelFontWeight.name,
+            prefs.novelLineSpacingMultiplier.toString(),
+            prefs.novelMarginTopPx.toString(),
+            prefs.novelMarginBottomPx.toString(),
+            prefs.novelMarginLeftPx.toString(),
+            prefs.novelMarginRightPx.toString(),
+            prefs.novelLetterSpacingPx.toString(),
             prefs.novelFirstLineIndent.toString(),
         ).joinToString("|")
 
@@ -197,6 +203,12 @@ class ReaderViewModel(
             pageHeightPx = metrics.heightPixels,
             fontFamily = prefs.novelFontFamily,
             fontWeight = prefs.novelFontWeight,
+            lineSpacingMultiplier = prefs.novelLineSpacingMultiplier.coerceIn(0.8f, 2.5f),
+            marginTopPx = prefs.novelMarginTopPx.coerceIn(0f, 96f),
+            marginBottomPx = prefs.novelMarginBottomPx.coerceIn(0f, 96f),
+            marginLeftPx = prefs.novelMarginLeftPx.coerceIn(0f, 96f),
+            marginRightPx = prefs.novelMarginRightPx.coerceIn(0f, 96f),
+            letterSpacingPx = prefs.novelLetterSpacingPx.coerceIn(-4f, 12f),
             // 字体解析（内置/导入字体文件的加载）在此一次完成；调用链已在线程
             // IO 上（openSource 契约）；失败由 NovelFonts.resolve 内部回退系统族。
             typeface = NovelFonts.resolve(

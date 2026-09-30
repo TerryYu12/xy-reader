@@ -61,6 +61,15 @@ data class NovelStyle(
      * 由阅读器 ViewModel 构造；null 时按 [fontFamily] 走系统族兜底。
      */
     val typeface: Typeface? = null,
+    /** 行距倍率（旧版固定为 1.5）。 */
+    val lineSpacingMultiplier: Float = 1.5f,
+    /** 四边页边距，单位 px。 */
+    val marginTopPx: Float = 64f,
+    val marginBottomPx: Float = 64f,
+    val marginLeftPx: Float = 48f,
+    val marginRightPx: Float = 48f,
+    /** 字符间距，单位 px。 */
+    val letterSpacingPx: Float = 0f,
     /**
      * 首行缩进：段落首行缩进 2 个全角字符宽；段落自身已有前导空白时按总宽对齐
      * （缩进量 = 2 字符宽 - 已有空白宽，不叠加）。实现走 LeadingMarginSpan，
@@ -105,14 +114,14 @@ internal data class PageFragment(
     val lineCount: Int,
 )
 
-/** 页面几何：内边距（px）与行距（倍数）按规格固定 */
+/** 页面几何：四边内边距（px）和行距倍率由阅读配置提供。 */
 internal data class NovelPageMetrics(
     val pageWidthPx: Int,
     val pageHeightPx: Int,
-    /** 水平内边距 px */
-    val paddingH: Float = 48f,
-    /** 垂直内边距 px */
-    val paddingV: Float = 64f,
+    val paddingLeft: Float = 48f,
+    val paddingRight: Float = 48f,
+    val paddingTop: Float = 64f,
+    val paddingBottom: Float = 64f,
 )
 
 /**
@@ -123,14 +132,14 @@ internal data class NovelPageMetrics(
  *
  * == 分页算法（断点结构） ==
  * - 行高 lineHeightPx 取自探针 StaticLayout 相邻内侧行的 getLineTop 差
- *   （同一 TextPaint 下全书行高一致；含 1.5 倍行距）；
- * - 页容量 = (pageHeight - 2*paddingV) / lineHeightPx（向下取整）；
+ *   （同一 TextPaint 下全书行高一致，含配置的行距倍率）；
+ * - 页容量 = (pageHeight - paddingTop - paddingBottom) / lineHeightPx（向下取整）；
  * - 逐段构建 StaticLayout 记录行数，行数按页容量切分为若干
  *   [PageFragment]（paragraphIndex, startLine, lineCount），跨页段落被切成
  *   多个片段分属相邻页；页 = 有序片段列表，故 pageCount 在打开时固化。
  *
  * == 渲染 ==
- * 每页新建透明底 ARGB_8888 Bitmap → Canvas 平移 (paddingH, 首行槽位 y -
+ * 每页新建透明底 ARGB_8888 Bitmap → Canvas 平移 (paddingLeft, 首行槽位 y -
  * layout.getLineTop(startLine)) → clipRect 页内容区 → StaticLayout.draw。
  * 片段定位使用 layout 自身的 getLineTop（行高与分页探针同源），槽位与绘制零漂移。
  *
@@ -148,6 +157,10 @@ class NovelPageSource internal constructor(
     private val metrics = NovelPageMetrics(
         pageWidthPx = style.pageWidthPx.coerceAtLeast(1),
         pageHeightPx = style.pageHeightPx.coerceAtLeast(1),
+        paddingLeft = style.marginLeftPx.coerceIn(0f, (style.pageWidthPx.coerceAtLeast(1) - 1) / 2f),
+        paddingRight = style.marginRightPx.coerceIn(0f, (style.pageWidthPx.coerceAtLeast(1) - 1) / 2f),
+        paddingTop = style.marginTopPx.coerceIn(0f, (style.pageHeightPx.coerceAtLeast(1) - 1) / 2f),
+        paddingBottom = style.marginBottomPx.coerceIn(0f, (style.pageHeightPx.coerceAtLeast(1) - 1) / 2f),
     )
 
     /** 正文字画笔：字色由样式决定，字号 sp → px */
@@ -172,18 +185,21 @@ class NovelPageSource internal constructor(
                 Typeface.NORMAL
             },
         )
+        letterSpacing = this@NovelPageSource.style.letterSpacingPx
+            .coerceIn(-4f, 12f) / textSize.coerceAtLeast(1f)
     }
 
-    /** 内容区宽度（页宽 - 2*水平内边距），StaticLayout 测量与绘制共用 */
+    /** 内容区宽度（页宽 - 左右内边距），StaticLayout 测量与绘制共用 */
     private val contentWidth =
-        (metrics.pageWidthPx - 2 * metrics.paddingH).toInt().coerceAtLeast(1)
+        (metrics.pageWidthPx - metrics.paddingLeft - metrics.paddingRight).toInt().coerceAtLeast(1)
 
     /** 统一行高（px）：探针布局的相邻内侧行顶差，分页与渲染共用同一数值保证零漂移 */
     private val lineHeightPx: Int = measureLineHeight()
 
-    /** 页容量行数：页高 - 2*垂直内边距，向下取整；极端小屏至少 1 行 */
+    /** 页容量行数：页高 - 上下内边距，向下取整；极端小屏至少 1 行 */
     private val linesPerPage: Int =
-        (((metrics.pageHeightPx - 2 * metrics.paddingV) / lineHeightPx).toInt()).coerceAtLeast(1)
+        (((metrics.pageHeightPx - metrics.paddingTop - metrics.paddingBottom) / lineHeightPx).toInt())
+            .coerceAtLeast(1)
 
     /** 分页结果：每页 = 有序片段列表（跨页段落被按行切开） */
     private val pages: List<List<PageFragment>>
@@ -297,7 +313,7 @@ class NovelPageSource internal constructor(
         return pagesOut to firstPages
     }
 
-    /** 统一 StaticLayout 构建：1.5 倍行距、含字体 padding、左对齐；首行缩进按样式生效 */
+    /** 统一 StaticLayout 构建：可调行距、含字体 padding、左对齐；首行缩进按样式生效 */
     private fun buildLayout(text: String): StaticLayout {
         val content: CharSequence =
             if (style.firstLineIndent && text.isNotEmpty()) {
@@ -307,7 +323,7 @@ class NovelPageSource internal constructor(
             }
         return StaticLayout.Builder.obtain(content, 0, content.length, textPaint, contentWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setLineSpacing(0f, LINE_SPACING_MULTIPLIER)
+            .setLineSpacing(0f, style.lineSpacingMultiplier.coerceIn(0.8f, 2.5f))
             .setIncludePad(true)
             .build()
     }
@@ -323,7 +339,8 @@ class NovelPageSource internal constructor(
             if (step > 0) return step
         }
         val fm = textPaint.fontMetrics
-        return ((fm.descent - fm.ascent) * LINE_SPACING_MULTIPLIER).roundToInt().coerceAtLeast(1)
+        return ((fm.descent - fm.ascent) * style.lineSpacingMultiplier.coerceIn(0.8f, 2.5f))
+            .roundToInt().coerceAtLeast(1)
     }
 
     // ---------- 目录 ----------
@@ -364,16 +381,16 @@ class NovelPageSource internal constructor(
                 var slot = 0
                 for (frag in fragments) {
                     val layout = layoutFor(frag.paragraphIndex)
-                    val top = metrics.paddingV + slot * lineHeightPx
-                    val bottom = metrics.paddingV + (slot + frag.lineCount) * lineHeightPx
+                    val top = metrics.paddingTop + slot * lineHeightPx
+                    val bottom = metrics.paddingTop + (slot + frag.lineCount) * lineHeightPx
                     canvas.save()
                     canvas.clipRect(
-                        metrics.paddingH, top,
-                        metrics.pageWidthPx - metrics.paddingH, bottom,
+                        metrics.paddingLeft, top,
+                        metrics.pageWidthPx - metrics.paddingRight, bottom,
                     )
                     // 定位：把该片段首行在 layout 中的行顶平移到本页槽位（行高同源，无漂移）
                     canvas.translate(
-                        metrics.paddingH,
+                        metrics.paddingLeft,
                         top - layout.getLineTop(frag.startLine),
                     )
                     layout.draw(canvas)
@@ -437,9 +454,6 @@ class NovelPageSource internal constructor(
     }
 
     companion object {
-
-        /** 行距倍数（规格固定 1.5） */
-        private const val LINE_SPACING_MULTIPLIER = 1.5f
 
         /** 封面合成底色（近黑，与默认黑底浅字样式匹配） */
         private val COVER_BACKGROUND = 0xFF101010.toInt()

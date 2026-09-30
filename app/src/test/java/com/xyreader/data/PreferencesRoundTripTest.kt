@@ -20,6 +20,12 @@ class PreferencesRoundTripTest {
             novelFontSizeSp = 27f,
             novelFontFamily = NovelFontFamily.SYSTEM_SERIF,
             novelFontWeight = NovelFontWeight.BOLD,
+            novelLineSpacingMultiplier = 1.8f,
+            novelMarginTopPx = 24f,
+            novelMarginBottomPx = 32f,
+            novelMarginLeftPx = 20f,
+            novelMarginRightPx = 28f,
+            novelLetterSpacingPx = 2f,
             pageMode = PageMode.UP_DOWN,
         )
         ReaderPrefsStore(context).set(expected)
