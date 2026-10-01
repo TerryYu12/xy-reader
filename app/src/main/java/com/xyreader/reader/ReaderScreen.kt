@@ -95,6 +95,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -449,7 +450,8 @@ private fun ReaderPagerArea(
     var showSettings by remember { mutableStateOf(false) }
     // 底部工具栏第一行显示内容：page = 页码滑条 / brightness = 亮度滑条（点亮度按钮切换）
     var barMode by remember { mutableStateOf("page") }
-    // 页内缩放状态：双指捏合与双击放大共用，翻页后复位为 1x
+    // 页内缩放状态：双指捏合与双击放大共用。图片书（漫画）横向模式整本共用这一份
+    // scale/offset——翻页不清零，放大原点整本一致；文字小说由下面的 effect 翻页复位
     val pageZoom = remember { PageZoomState() }
     // 连续列表（上下模式）整列同步缩放状态：与页内缩放（pageZoom）独立，
     // 缩放时整列等比放大、页与页仍首尾相接；纵向滚动继续由列表承担
@@ -487,11 +489,14 @@ private fun ReaderPagerArea(
     BackHandler(enabled = locked) {
     }
 
-    // 当前页变化时重置页内缩放；进度和预载由上层按当前阅读模式同步。
+    // 翻页时是否复位页内缩放：仅文字小说复位；图片书（漫画）整本统一缩放，翻页保持。
+    // 该 effect 不随 isTextNovel 重启，靠 rememberUpdatedState 读最新值（否则捕获的是
+    // 建 effect 那一次的旧值）；进度和预载由上层按当前阅读模式同步。
+    val textNovelNow = rememberUpdatedState(isTextNovel)
     LaunchedEffect(pagerState, verticalListState, upDown) {
         snapshotFlow { if (upDown) verticalListState.firstVisibleItemIndex else pagerState.currentPage }
             .distinctUntilChanged().collect {
-            pageZoom.reset()
+            if (textNovelNow.value) pageZoom.reset()
         }
     }
 
@@ -528,15 +533,16 @@ private fun ReaderPagerArea(
                     val pixel = ContinuousZoomMath.topPixel(
                         heights, verticalListState.firstVisibleItemIndex, from,
                     ) + verticalListState.firstVisibleItemScrollOffset
-                    val target = anchoredScrollOffset(pixel.toInt(), focalY, to / from)
-                    val (index, offset) = ContinuousZoomMath.locate(heights, target, to)
                     if (to <= 1f) {
                         columnZoomState.reset()
                     } else {
                         columnZoomState.setScalePreservePan(to)
                         columnZoomState.clampPanToViewport(viewportWidthPx)
                     }
-                    verticalListState.requestScrollToItem(index, offset.toInt())
+                    // 与双击动画共用同一套锚定数学：焦点处文档点缩放前后停在原处
+                    val (index, offsetInItem) =
+                        ContinuousZoomMath.anchorForScale(heights, pixel, focalY, from, to)
+                    verticalListState.requestScrollToItem(index, offsetInItem.toInt())
                 }
 
                 LazyColumn(
@@ -552,21 +558,27 @@ private fun ReaderPagerArea(
                                         val to = if (from > 1f) 1f else PAGE_ZOOM
                                         scope.launch {
                                             val heights = baseHeights()
+                                            // 动画起点：双击那一刻视口顶部的绝对像素（scale = from）
                                             val pixel = ContinuousZoomMath.topPixel(
                                                 heights, verticalListState.firstVisibleItemIndex, from,
                                             ) + verticalListState.firstVisibleItemScrollOffset
-                                            val target = anchoredScrollOffset(pixel.toInt(), offset.y, to / from)
-                                            val (index, offsetInItem) =
-                                                ContinuousZoomMath.locate(heights, target, to)
                                             animate(from, to, animationSpec = tween(200)) { value, _ ->
                                                 columnZoomState.setScalePreservePan(value)
+                                                // 逐帧锚定：每帧先写缩放，再按当前 scale 重算落点并滚动，
+                                                // 焦点处文档点全程停在双击位置（连续页不漂移、结尾不瞬跳）
+                                                val (index, offsetInItem) =
+                                                    ContinuousZoomMath.anchorForScale(
+                                                        heights, pixel, offset.y, from, value,
+                                                    )
+                                                verticalListState.requestScrollToItem(
+                                                    index, offsetInItem.toInt(),
+                                                )
                                             }
                                             if (to <= 1f) {
                                                 columnZoomState.reset()
                                             } else {
                                                 columnZoomState.clampPanToViewport(viewportWidthPx)
                                             }
-                                            verticalListState.requestScrollToItem(index, offsetInItem.toInt())
                                         }
                                     }
                                 },

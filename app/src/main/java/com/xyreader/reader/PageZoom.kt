@@ -140,6 +140,27 @@ internal object ContinuousZoomMath {
         return sum * scale
     }
 
+    /**
+     * 缩放动画的逐帧锚定：动画起点是 scale=[fromScale] 下视口顶部的绝对像素 [startPixel]，
+     * 焦点（手指/双击点）在视口内的 y 为 [focalY]，求当前帧缩放 [currentScale] 时
+     * 列表应滚动到的 (项下标, 项内偏移)。
+     *
+     * 每帧都以动画起点重算而非在上一次结果上累加，误差不随时间累积：
+     * 焦点处的文档点在动画全程停在 [focalY]（不漂移），[currentScale] == 目标倍数时
+     * 落点与「动画结束后一次性 locate」完全一致（不瞬跳）。
+     */
+    fun anchorForScale(
+        heights: List<Float>,
+        startPixel: Float,
+        focalY: Float,
+        fromScale: Float,
+        currentScale: Float,
+    ): Pair<Int, Float> = locate(
+        heights = heights,
+        pixel = anchoredScrollOffset(startPixel.toInt(), focalY, currentScale / fromScale),
+        scale = currentScale,
+    )
+
     /** 把缩放 [scale] 下的绝对像素 [pixel] 定位成 (index, 项内偏移[0, 项高)) */
     fun locate(heights: List<Float>, pixel: Float, scale: Float): Pair<Int, Float> {
         if (heights.isEmpty()) return 0 to 0f
