@@ -166,9 +166,10 @@ private fun ReadBackground.toComposeColor(): Color = Color(argb.toInt())
 
 /**
  * 阅读器界面：黑底全屏 Pager + 三分点击（左翻上页 / 中工具栏 / 右翻下页，可配置关闭点击翻页）
- * + 双击页内放大（可配置）+ 顶部（返回 / 目录 / 书名 / 书签 / 收藏）与底部
- * （滑条跳页 + 亮度行 + 五按钮：上一章 / 设置 / 添加书签 / 目录 / 下一章）圆角浮层工具栏
- * + 右侧中央手势锁（防误触：锁定只拦点击，滑动照常；点屏幕中央呼出解锁钮）
+ * + 双击页内放大（可配置）+ 顶部（返回 / 目录 / 书名 / 书签 / 收藏 / 锁定手势）与底部
+ * （滑条跳页 + 亮度行 + 六按钮：上一章 / 亮度 / 设置 / 添加书签 / 目录 / 下一章）圆角浮层工具栏
+ * + 手势锁（防误触：锁定只拦点击，滑动照常）——锁定入口在顶部工具栏、随菜单一起出现；
+ *   锁定后点屏幕中央呼出解锁钮，点解锁钮解锁并呼出菜单
  * + 全屏目录弹层（目录 / 书签双 tab，当前章高亮）+ 阅读设置快捷面板（翻页 / 背景 / 缩放 / 小说字号 / 常亮）
  * + 阅读背景色与亮度即时生效 + 屏幕常亮。
  * 进入隐藏系统状态栏、应用亮度配置，离开全部恢复。
@@ -447,7 +448,8 @@ private fun ReaderPagerArea(
     var sliderActive by remember { mutableStateOf(false) }
     var sliderPage by remember { mutableIntStateOf(0) }
     // 手势锁（会话内记忆）：防误触——锁定期间只拦点击（不弹菜单、不点按翻页、不双击缩放），
-    // 滑动翻页照常；无遮罩不变暗。解锁钮常驻隐藏，点击屏幕中央呼出。
+    // 滑动翻页照常；无遮罩不变暗。锁定入口在顶部工具栏（随菜单一起出现）；
+    // 解锁钮常驻隐藏，锁定后点击屏幕中央呼出。
     var locked by remember { mutableStateOf(false) }
     var lockBadgeVisible by remember { mutableStateOf(false) }
     // 阅读设置快捷面板开关
@@ -483,6 +485,7 @@ private fun ReaderPagerArea(
         }
     }
 
+    /** 顶部工具栏锁定入口：收起菜单、收起解锁钮并进入锁定态 */
     fun lockGesture() {
         toolbarVisible = false
         lockBadgeVisible = false
@@ -753,10 +756,18 @@ private fun ReaderPagerArea(
                         )
                     }
                 }
+                // 手势锁入口（防误触）：随菜单一起出现/消失，点击即锁定并收起菜单
+                IconButton(onClick = { lockGesture() }) {
+                    Icon(
+                        imageVector = Icons.Outlined.LockOpen,
+                        contentDescription = "锁定手势（防误触）",
+                        tint = Color.White,
+                    )
+                }
             }
         }
 
-        // —— 底部工具栏：滑条跳页 + 亮度行 + 页码 + 五个等宽功能按钮 ——
+        // —— 底部工具栏：滑条跳页 + 亮度行 + 六个等宽功能按钮 ——
         AnimatedVisibility(
             visible = toolbarVisible && !locked,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -924,29 +935,7 @@ private fun ReaderPagerArea(
             }
         }
 
-        // —— 右侧中央常驻手势锁钮（未锁定态，低调半透明）：点击即锁定 ——
-        if (!locked) {
-            Surface(
-                onClick = { lockGesture() },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 6.dp)
-                    .size(36.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.LockOpen,
-                        contentDescription = "锁定手势（防误触）",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-
-        // —— 解锁钮：锁定后无遮罩不变暗、滑动翻页照常，本钮常驻隐藏；
+        // —— 解锁钮：顶部菜单锁定后本钮常驻隐藏（无遮罩不变暗、滑动翻页照常）；
         //    点击屏幕中央呼出，点击解锁并呼出菜单；返回键由 BackHandler 拦截 ——
         AnimatedVisibility(
             visible = locked && lockBadgeVisible,

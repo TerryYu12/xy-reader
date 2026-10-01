@@ -19,7 +19,6 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.abs
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -30,41 +29,42 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * 左右翻页模式 + 图片书（漫画）双击放大 = 整本统一缩放的端到端行为：
- * - 缩放中点按左右分区仍可翻页；
- * - 翻页不复位缩放（0.4.8 及以前翻页即 `pageZoom.reset()`）；
- * - 再双击缩回 1x，拖动翻页恢复。
+ * 手势锁交互流程（0.4.11 起）：
+ * - 锁定入口不再常驻右侧中央，而是随顶部菜单一起出现/消失（「点中央 → 菜单出现 → 锁定入口一起出现」）；
+ * - 锁定后点屏幕中央呼出解锁钮（满锁图标），点它解锁并呼出菜单；
+ * - 防误触语义不变：锁定只拦点击（左右分区静默、双击不缩放），滑动翻页照常。
  *
- * 「当前是否处于缩放态」在测试里读不到 graphicsLayer，改用其可观测副作用钉死：
- * `userScrollEnabled = pageZoom.scale <= 1f` —— 缩放中横向拖动被缩放态接管、不翻页，
- * 缩回 1x 后横滑能翻页。于是「翻页后横滑仍不翻页」即证明缩放未被复位
- * （旧实现在此处缩回 1x，横滑会滑到下一页）。
- *
- * 触点坐标：点按取 75% 宽、横滑取 80%→10% 宽且 y 取 30%（早期为避开右侧中央常驻锁钮而取；
- * 0.4.11 起锁钮已移入顶部菜单随菜单出现，坐标予以保留）。
+ * 回归重点（0.4.11 前）：右侧中央常驻锁钮与右 1/3 点按翻页分区重叠——
+ * 在旧锁钮位置点按会误入锁定态而不是翻页；本测试钉死该位置必须翻页。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w360dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-class MangaUnifiedZoomTest {
+class GestureLockFlowTest {
 
     @get:Rule
     val compose = createComposeRule()
 
     private val pageCount = 4
+    private val lockDesc = "锁定手势（防误触）"
+    private val unlockDesc = "解锁手势"
 
-    /** 推进 [frames] 帧（每帧约 16ms 虚拟时间）：跑完 200ms 双击缩放与翻页动画，不依赖 waitForIdle */
+    /** 推进 [frames] 帧（每帧约 16ms 虚拟时间）：跑完 250ms 工具栏/锁钮进出场动画，不依赖 waitForIdle */
     private fun advance(frames: Int = 80) {
         repeat(frames) { compose.mainClock.advanceTimeByFrame() }
     }
 
-    /** 第 [index] 页在根坐标里的左边界；未进入组合（离屏）时为 null */
     private fun pageLeft(index: Int): Float? =
         compose.onAllNodesWithContentDescription("第 ${index + 1} 页")
             .fetchSemanticsNodes().firstOrNull()?.boundsInRoot?.left
 
-    /** 第 [index] 页是否停稳在视口起点 */
     private fun atPage(index: Int): Boolean = pageLeft(index)?.let { abs(it) <= 2f } == true
+
+    private fun lockButtonCount(): Int =
+        compose.onAllNodesWithContentDescription(lockDesc).fetchSemanticsNodes().size
+
+    private fun unlockButtonCount(): Int =
+        compose.onAllNodesWithContentDescription(unlockDesc).fetchSemanticsNodes().size
 
     /** 页面横滑翻页 */
     private fun swipePageLeft() {
@@ -77,14 +77,9 @@ class MangaUnifiedZoomTest {
         }
     }
 
-    /** 点按右 1/3 分区 */
-    private fun tapRightThird() {
-        compose.onRoot().performTouchInput { click(percentOffset(0.75f, 0.3f)) }
-    }
-
     private fun seedMangaBook(): Long {
         val context = RuntimeEnvironment.getApplication()
-        val file = File(context.cacheDir, "manga-unified-zoom.cbz")
+        val file = File(context.cacheDir, "gesture-lock-flow.cbz")
         ZipOutputStream(file.outputStream()).use { zip ->
             repeat(pageCount) { i ->
                 val bitmap = Bitmap.createBitmap(600, 400, Bitmap.Config.ARGB_8888)
@@ -106,7 +101,7 @@ class MangaUnifiedZoomTest {
             )
             ArkDatabase.getInstance(context).bookDao().insertBook(
                 BookEntity(
-                    title = "漫画统一缩放测试",
+                    title = "手势锁流程测试",
                     uri = Uri.fromFile(file).toString(),
                     format = "CBZ",
                     addedAt = 123,
@@ -116,36 +111,50 @@ class MangaUnifiedZoomTest {
     }
 
     @Test
-    fun `漫画横向双击放大整本统一缩放且翻页不复位`() {
+    fun `锁定入口随菜单出现_锁定后点中央呼出解锁钮_旧锁钮位置不再拦截翻页`() {
         val bookId = seedMangaBook()
         compose.setContent { ArkTheme { ReaderScreen(bookId, onBack = {}) } }
         compose.waitUntil(timeoutMillis = 30_000) { atPage(0) }
 
-        // 双击 → 整本放大：横滑被缩放态接管（userScrollEnabled=false），不翻页
-        compose.onRoot().performTouchInput { doubleClick(center) }
+        // 初始菜单隐藏：锁定/解锁入口都不存在（锁定入口不再是常驻按钮）
+        assertTrue("初始应无锁定入口（不再常驻）", lockButtonCount() == 0)
+        assertTrue("初始应无解锁钮", unlockButtonCount() == 0)
+
+        // 回归：旧锁钮位置（右侧中央 x≈0.93w, y=0.5h）点按必须翻页（0.4.11 前会误入锁定态）
+        compose.onRoot().performTouchInput { click(percentOffset(0.93f, 0.5f)) }
         advance()
+        assertTrue("右侧中央点按应翻页而不是进入锁定态", atPage(1))
+
+        // 点屏幕中央 → 菜单出现，锁定入口随菜单一起出现
+        compose.onRoot().performTouchInput { click(center) }
+        advance()
+        assertTrue("点中央后菜单与锁定入口应一起出现", lockButtonCount() == 1)
+
+        // 点击锁定入口 → 进入锁定：菜单与锁定入口收起
+        compose.onNodeWithContentDescription(lockDesc).performClick()
+        advance()
+        assertTrue("锁定后菜单应收起（锁定入口消失）", lockButtonCount() == 0)
+
+        // 锁定中：右 1/3 点按静默（不翻页），也不呼出解锁钮
+        compose.onRoot().performTouchInput { click(percentOffset(0.75f, 0.3f)) }
+        advance()
+        assertTrue("锁定中点按右分区不应翻页", atPage(1))
+        assertTrue("锁定中点按右分区不应呼出解锁钮", unlockButtonCount() == 0)
+
+        // 锁定中：滑动翻页照常
         swipePageLeft()
         advance()
-        assertFalse("放大后横滑不应翻页", atPage(1))
-        assertTrue("放大后应仍停在第 1 页", atPage(0))
+        assertTrue("锁定中滑动应能翻页", atPage(2))
 
-        // 缩放中点按右 1/3 分区 → 翻到第 2 页（点按翻页不受缩放影响）
-        tapRightThird()
+        // 锁定中点屏幕中央 → 呼出解锁钮
+        compose.onRoot().performTouchInput { click(center) }
         advance()
-        assertTrue("缩放中点按右分区应能翻页", atPage(1))
+        assertTrue("锁定中点中央应呼出解锁钮", unlockButtonCount() == 1)
 
-        // 关键回归：翻页不清零缩放 —— 仍处于缩放态，横滑依旧不翻页
-        // （0.4.8 及以前：翻页即复位成 1x，这里会滑到第 3 页）
-        swipePageLeft()
+        // 点解锁钮 → 解锁并呼出菜单（锁定入口随菜单再次出现）
+        compose.onNodeWithContentDescription(unlockDesc).performClick()
         advance()
-        assertFalse("翻页后缩放应保持，横滑不应翻页", atPage(2))
-        assertTrue("翻页后应停在第 2 页", atPage(1))
-
-        // 再双击 → 整本缩回 1x（offset 清零），拖动翻页恢复
-        compose.onRoot().performTouchInput { doubleClick(center) }
-        advance()
-        swipePageLeft()
-        advance()
-        assertTrue("缩回 1x 后横滑应恢复翻页", atPage(2))
+        assertTrue("解锁后解锁钮应消失", unlockButtonCount() == 0)
+        assertTrue("解锁后菜单与锁定入口应随解锁一起出现", lockButtonCount() == 1)
     }
 }

@@ -16,7 +16,7 @@ val keystoreProperties = Properties().apply {
 }
 
 /** 应用发布版本号：defaultConfig 与交付命名脚本（XY-READER-<版本>.apk）共用这一处 */
-val appVersionName = "0.4.10"
+val appVersionName = "0.4.11"
 
 android {
     namespace = "com.xyreader"
@@ -26,7 +26,7 @@ android {
         applicationId = "com.xyreader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
+        versionCode = 23
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -52,7 +52,7 @@ class ContinuousZoomAnchorTest {
     /** scale=1 时每页高度：视口宽 360px ÷ 宽高比 1.5 */
     private val baseHeight = 240f
 
-    /** 双击/焦点位置（屏幕 y）：落在第 2 页中段，避开右侧中央常驻手势锁钮 */
+    /** 双击/焦点位置（屏幕 y）：落在第 2 页中段（坐标原为避开右中常驻锁钮而取，0.4.11 起锁钮已移入顶部菜单） */
     private val focalY = 360f
 
     private fun pageBounds(): List<Pair<Int, Rect>> =

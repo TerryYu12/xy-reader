@@ -41,7 +41,7 @@ import org.robolectric.annotation.GraphicsMode
  *
  * 合成页：600×400 白底 + y=175..225 的黑色整宽横条（marker）。
  * 页面按视口宽 360px 适配 → 1x 时 marker 高 30px，2.5x 时应为 75px。
- * 度量列取 x=180（屏幕中线），避开右侧中央常驻手势锁钮（x≈318-354）。
+ * 度量列取 x=180（屏幕中线；早期为避开右中常驻锁钮而取中线，0.4.11 起锁钮已移入顶部菜单）。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w360dp-h800dp-mdpi")
@@ -65,7 +65,7 @@ class UpDownZoomRenderTest {
     /** 1x 时 marker 在屏幕上的高度（px）：(225-175) × 360/600 */
     private val markerAt1x = 30
 
-    /** 度量列：屏幕中线，远离手势锁钮 */
+    /** 度量列：屏幕中线 */
     private val scanX = 180
 
     /** 推进 [frames] 帧（每帧约 16ms）：跑完 200ms 双击缩放动画 */
