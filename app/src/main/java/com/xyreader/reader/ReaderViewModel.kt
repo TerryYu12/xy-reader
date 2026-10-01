@@ -4,14 +4,18 @@ import android.app.Application
 import android.util.LruCache
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xyreader.archive.NovelPageSource
 import com.xyreader.archive.NovelStyle
+import com.xyreader.archive.PdfPageSource
 import com.xyreader.core.ArchiveFactory
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookmarkEntity
 import com.xyreader.core.Chapter
+import com.xyreader.core.ImageQuality
 import com.xyreader.core.NovelFonts
 import com.xyreader.core.NovelFontWeight
 import com.xyreader.core.PageSource
@@ -256,7 +260,18 @@ class ReaderViewModel(
         // 重新 openSource（保留当前页）。连续变化（如快速连点字号）由 restyleJob
         // 取消重设实现 latest-win，只重建最后一次。
         viewModelScope.launch {
+            var lastImageQuality: ImageQuality? = null
             readerPrefs.collect { prefs ->
+                // 图片渲染质量切换（标准 ↔ 高清）：位图规格变化，无需重开数据源——
+                // 失效在途结果、清缓存并重渲染当前页即可。
+                if (lastImageQuality == null) {
+                    lastImageQuality = prefs.imageQuality
+                } else if (lastImageQuality != prefs.imageQuality) {
+                    lastImageQuality = prefs.imageQuality
+                    if (source != null && _state.value.phase == ReaderPhase.Ready) {
+                        refreshPagesForImageQuality()
+                    }
+                }
                 val key = styleKey(prefs)
                 if (key == openedStyleKey) return@collect
                 // 初次打开或样式重排时 source 会暂时为空；openSource 完成后会比较最新偏好。
@@ -311,6 +326,23 @@ class ReaderViewModel(
         _pages.clear()
         _pageAspectRatios.clear()
         openSource(book, reopen = true, novelAnchor = novelAnchor, oldPage = oldPage)
+    }
+
+    /**
+     * 图片渲染质量切换：缓存与在页位图全部按旧规格，需整体失效重渲染。
+     * 不重开数据源（打开成本高且无必要）；递增 generation 让在途渲染结果作废。
+     */
+    private fun refreshPagesForImageQuality() {
+        if (source == null) return
+        activeGeneration = generationCounter.incrementAndGet()
+        pageCache.lru.evictAll()
+        synchronized(queueLock) {
+            queuedPages.removeAll { it.generation != activeGeneration }
+            inFlight.removeAll { it.generation != activeGeneration }
+        }
+        _pages.clear()
+        requestPage(currentPage)
+        preloadAround(currentPage)
     }
 
     private fun openSource(
@@ -477,7 +509,7 @@ class ReaderViewModel(
             knownAspect?.takeIf { it.isFinite() && it > 0f }
                 ?.let { publishAspectRatio(page, it, key.generation) }
 
-            val bitmap = withContext(Dispatchers.IO) { src.renderPage(page) }
+            val bitmap = withContext(Dispatchers.IO) { applyImageQuality(src, src.renderPage(page)) }
             if (src !== source || key.generation != activeGeneration) return
             pageCache.lru.put(page, bitmap)
             val renderedAspect = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
@@ -494,6 +526,27 @@ class ReaderViewModel(
 
     private fun isNearCurrent(page: Int): Boolean =
         page in visiblePageIndices || kotlin.math.abs(page - currentPage) <= PAGE_UI_RADIUS
+
+    /** 高清档：位图页在缩小显示前先做多级高质量预缩（见 ImageDownscale）；失败回退原图。 */
+    private fun applyImageQuality(src: PageSource, bitmap: ImageBitmap): ImageBitmap {
+        // PDF 渲染尺寸已按屏幕适配（PdfRenderMath）；文字页（NovelPageSource）天然贴合屏幕——
+        // 这两类再走预缩只会无谓损失分辨率 / 浪费 CPU，直接跳过。
+        if (src is PdfPageSource || src is NovelPageSource) return bitmap
+        if (readerPrefs.value.imageQuality != ImageQuality.HIGH) return bitmap
+        val android = bitmap.asAndroidBitmap()
+        val target = ImageDownscale.targetSize(android.width, android.height, screenShortSidePx())
+            ?: return bitmap
+        val scaled = ImageDownscale.downscale(android, target) ?: return bitmap
+        // 原图仅此处持有（尚未发布/入缓存），显式回收避免大位图堆积等 GC
+        if (scaled !== android) android.recycle()
+        return scaled.asImageBitmap()
+    }
+
+    /** 屏幕短边（取宽高较小者：竖屏=屏宽、横屏=屏高；旋转/窗口变化时动态读取） */
+    private fun screenShortSidePx(): Int {
+        val dm = appContext.resources.displayMetrics
+        return minOf(dm.widthPixels, dm.heightPixels)
+    }
 
     private fun publishLoading(page: Int, generation: Long) {
         if (generation != activeGeneration || !isNearCurrent(page)) return

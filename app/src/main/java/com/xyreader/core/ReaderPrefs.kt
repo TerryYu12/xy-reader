@@ -33,6 +33,24 @@ enum class ImageScale(val label: String) {
     FILL_WIDTH("适合宽度"),
 }
 
+/**
+ * 图片渲染质量（漫画 / 图片页的显示清晰度）。
+ *
+ * 背景：漫画扫描件常见 1600–4000px 宽，手机上按屏幕宽度显示普遍要缩小 1.5–3 倍。
+ * Android 端 Compose 的 FilterQuality 只有 None / Low 两种实际行为
+ * （Medium / High 与 Low 等效，javap 验证 androidx.compose.ui:ui-graphics 1.7.6），
+ * 单步双线性在大比例缩小时欠采样，线条与网点细节丢失（用户感知为"模糊"）。
+ * 高清档在解码后先做「逐级减半」的多级重采样（androidx BitmapCompat 官方算法，
+ * 效果接近 mipmap），把交给 GPU 的缩小比例压到 2 倍以内，显示更锐利。
+ */
+enum class ImageQuality(val label: String) {
+    /** 历史行为：原图尺寸直接交给 GPU 双线性缩放显示 */
+    STANDARD("标准"),
+
+    /** 大图缩小前先做多级高质量重采样（默认；首次翻页略慢，内存占用更低） */
+    HIGH("高清"),
+}
+
 /** 文字小说字号（NovelPageSource 排版用） */
 enum class NovelFontSize(val label: String, val sp: Float) {
     SMALL("小", 16f),
@@ -79,6 +97,11 @@ data class ReaderPrefs(
     val keepScreenOn: Boolean = false,
     /** 图片缩放模式 */
     val imageScale: ImageScale = ImageScale.FIT,
+    /**
+     * 图片渲染质量：默认高清（大图缩小显示前先做多级高质量重采样）；
+     * 标准 = 历史行为。对文字小说无影响（其页面天然不超过屏幕尺寸）。
+     */
+    val imageQuality: ImageQuality = ImageQuality.STANDARD,
     /** 文字小说字号 */
     val novelFontSize: NovelFontSize = NovelFontSize.MEDIUM,
     /** 文字小说字号（sp）；保留旧枚举以兼容已存配置与调用方 */

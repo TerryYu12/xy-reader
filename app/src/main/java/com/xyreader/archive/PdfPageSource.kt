@@ -3,12 +3,14 @@ package com.xyreader.archive
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.xyreader.core.BookEntity
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,10 +21,16 @@ import kotlinx.coroutines.withContext
  *
  * PdfRenderer 是单线程 API，openPage/render/closePage 必须串行执行，
  * 用类内 [renderLock]（Mutex）把整页渲染流程保护起来。
+ *
+ * 渲染分辨率按屏幕物理像素放大：PdfRenderer 默认按 PDF 的 72dpi 点尺寸出图，
+ * 手机上全屏显示需放大近 2 倍，位图被拉伸后必然模糊。这里改为按「屏幕短边 ×
+ * 放大余量」的目标像素渲染，用显式 transform matrix 把 72dpi 点坐标放大到目标像素，
+ * 并选用 RENDER_MODE_FOR_PRINT（优先保真而非速度）。
  */
 class PdfPageSource private constructor(
     private val renderer: PdfRenderer,
     private val pfd: ParcelFileDescriptor,
+    private val appContext: Context,
 ) : AbstractPageSource() {
 
     private val renderLock = Mutex()
@@ -36,11 +44,18 @@ class PdfPageSource private constructor(
             withContext(Dispatchers.IO) {
                 val page = renderer.openPage(index)
                 try {
-                    val bitmap =
-                        Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                    // 按「屏幕短边 × OVERSAMPLE」渲染（至少 1 倍点尺寸；极端幅面按上限收缩）
+                    val scale = PdfRenderMath.renderScale(page.width, page.height, renderTargetWidthPx())
+                    val outWidth = (page.width * scale).roundToInt().coerceAtLeast(1)
+                    val outHeight = (page.height * scale).roundToInt().coerceAtLeast(1)
+                    val bitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
                     // PDF 透明区域渲染结果为透明像素，垫白色避免阅读时露黑底
                     bitmap.eraseColor(Color.WHITE)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    // 显式缩放矩阵：把 72dpi 点坐标放大到目标像素；FOR_PRINT 面向高保真输出
+                    val matrix = Matrix().apply {
+                        setScale(outWidth.toFloat() / page.width, outHeight.toFloat() / page.height)
+                    }
+                    page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                     bitmap.asImageBitmap()
                 } finally {
                     runCatching { page.close() }
@@ -48,6 +63,12 @@ class PdfPageSource private constructor(
                 }
             }
         }
+    }
+
+    /** 渲染目标宽度：屏幕短边 × oversample（旋转/窗口变化时动态读取） */
+    private fun renderTargetWidthPx(): Int {
+        val dm = appContext.resources.displayMetrics
+        return (minOf(dm.widthPixels, dm.heightPixels) * PdfRenderMath.OVERSAMPLE).roundToInt()
     }
 
     /** PdfRenderer 可在解码位图前直接给出页面尺寸，避免连续列表先用占位高度再跳动。 */
@@ -87,7 +108,7 @@ class PdfPageSource private constructor(
                         .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
                     throw IllegalStateException("PDF 没有可渲染页面: ${book.uri}")
                 }
-                return PdfPageSource(renderer, pfd)
+                return PdfPageSource(renderer, pfd, context.applicationContext)
             } catch (t: Throwable) {
                 runCatching { pfd.close() }
                     .onFailure { Log.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }

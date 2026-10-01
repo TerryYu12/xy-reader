@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.R
+import com.xyreader.core.ImageQuality
 import com.xyreader.core.ImageScale
 import com.xyreader.core.MangaDirection
 import com.xyreader.core.NovelFontFamily
@@ -217,6 +218,20 @@ private fun DisplayGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Rea
                 if (it == ImageScale.FILL_WIDTH) "铺满屏幕宽度，长图更沉浸" else "整页完整显示，留白用背景色"
             },
             onSelect = { scale -> onUpdate { it.copy(imageScale = scale) } },
+        )
+        PrefCard(
+            title = "图片渲染质量",
+            options = ImageQuality.entries,
+            selected = prefs.imageQuality,
+            label = { it.label },
+            sublabel = {
+                if (it == ImageQuality.HIGH) {
+                    "大图缩小显示前先做多级高质量重采样，更干净少摩尔纹（首次翻页略慢）"
+                } else {
+                    "原图直接缩放显示（默认，与旧版一致）"
+                }
+            },
+            onSelect = { quality -> onUpdate { it.copy(imageQuality = quality) } },
         )
         PrefCard(
             title = "屏幕方向",

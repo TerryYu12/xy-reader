@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.xyreader.core.ImageQuality
 import com.xyreader.core.ImageScale
 import com.xyreader.core.MangaDirection
 import com.xyreader.core.NovelFontFamily
@@ -46,6 +47,9 @@ private val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
 
 /** 图片缩放：存 ImageScale.name，缺失/非法值回退 FIT */
 private val KEY_IMAGE_SCALE = stringPreferencesKey("image_scale")
+
+/** 图片渲染质量：存 ImageQuality.name，缺失/非法值回退标准（预缩档默认关，真机试后可开） */
+private val KEY_IMAGE_QUALITY = stringPreferencesKey("image_quality")
 
 /** 文字小说字号：存 NovelFontSize.name，缺失/非法值回退中号 */
 private val KEY_NOVEL_FONT_SIZE = stringPreferencesKey("novel_font_size")
@@ -102,6 +106,7 @@ class ReaderPrefsStore(context: Context) {
             doubleTapZoom = p[KEY_DOUBLE_TAP_ZOOM] ?: true,
             keepScreenOn = p[KEY_KEEP_SCREEN_ON] ?: false,
             imageScale = parseEnum(p[KEY_IMAGE_SCALE], ImageScale.FIT),
+            imageQuality = parseEnum(p[KEY_IMAGE_QUALITY], ImageQuality.STANDARD),
             novelFontSize = legacyFontSize,
             novelFontSizeSp = p[KEY_NOVEL_FONT_SIZE_SP]
                 ?.toFloatOrNull()
@@ -139,7 +144,7 @@ class ReaderPrefsStore(context: Context) {
         )
     }
 
-    /** 写入全部十项配置 */
+    /** 写入全部配置项 */
     suspend fun set(prefs: ReaderPrefs) {
         dataStore.edit { p ->
             p[KEY_PAGE_MODE] = prefs.pageMode.name
@@ -152,6 +157,7 @@ class ReaderPrefsStore(context: Context) {
             p[KEY_DOUBLE_TAP_ZOOM] = prefs.doubleTapZoom
             p[KEY_KEEP_SCREEN_ON] = prefs.keepScreenOn
             p[KEY_IMAGE_SCALE] = prefs.imageScale.name
+            p[KEY_IMAGE_QUALITY] = prefs.imageQuality.name
             p[KEY_NOVEL_FONT_SIZE] = prefs.novelFontSize.name
             p[KEY_NOVEL_FONT_SIZE_SP] = prefs.novelFontSizeSp.coerceIn(12f, 36f).toString()
             p[KEY_NOVEL_FONT_FAMILY] = prefs.novelFontFamily.name

@@ -5,6 +5,7 @@ import android.graphics.pdf.PdfDocument
 import com.xyreader.core.BookEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -31,7 +32,9 @@ class PdfGeometryTest {
             for ((i, ratio) in listOf(1.5f, 0.75f, 0.5f).withIndex()) {
                 assertEquals(ratio, source.pageAspectRatio(i)!!, 0.0001f)
                 val bitmap = source.renderPage(i)
-                assertEquals(ratio, bitmap.width.toFloat() / bitmap.height, 0.0001f)
+                // 新行为：渲染分辨率按屏幕短边 × 1.5 放大（至少 1 倍点尺寸）
+                assertTrue("渲染宽度应不小于点尺寸", bitmap.width >= 600)
+                assertEquals(ratio, bitmap.width.toFloat() / bitmap.height, 0.01f)
             }
         }
     }

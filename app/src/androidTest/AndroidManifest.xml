@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  移除 AGP / 测试库注入的 uses-library android.test.runner 声明。
+
+  背景：框架遗留的 android.test.runner 在 platform.xml 里依赖 android.test.mock，
+  而部分定制 ROM（如 MuMu 模拟器）删除了这两个 jar 文件本体；Android 15 的安装
+  reconcile 会顺着依赖链检查，缺 mock 时直接拒绝安装测试 APK
+  （INSTALL_FAILED_MISSING_SHARED_LIBRARY: ... android.test.mock）。
+
+  现代 androidx.test.runner 自包含、不依赖框架 test 库（框架库是 JUnit3 时代遗留），
+  因此整体移除该声明即可，不影响任何测试的运行。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-library
+        android:name="android.test.runner"
+        tools:node="remove" />
+
+</manifest>
