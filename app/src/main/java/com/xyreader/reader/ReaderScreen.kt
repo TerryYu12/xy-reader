@@ -102,8 +102,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -623,6 +627,7 @@ private fun ReaderPagerArea(
                             onNeedRender = viewModel::requestPage,
                             modifier = pageModifier,
                             panX = { columnZoomState.offset.x },
+                            renderScale = { columnZoomState.scale },
                         )
                     }
                 }
@@ -1563,7 +1568,8 @@ private fun TabChip(text: String, selected: Boolean, onClick: () -> Unit) {
 /**
  * 单页：就绪画图，未就绪转圈，失败提示；进入组合时请求 ViewModel 渲染。
  * [zoomState] 非空 = 页内缩放（双指捏合 + 双击放大 + 平移，左右翻页用）；
- * 为空 = 连续列表模式（缩放由列表层整列处理，仅按 [panX] 做水平平移）。
+ * 为空 = 连续列表模式：页框由列表层按整列缩放撑高，这里把同一倍数 [renderScale] 作用到
+ * 图像本体（否则只撑高框、画面尺寸不变），再按 [panX] 做水平平移。
  * [imageScale] 决定图片适配方式（适合宽度 / 适合屏幕）。
  */
 @Composable
@@ -1576,6 +1582,7 @@ private fun ReaderPage(
     onNeedRender: (Int) -> Unit,
     modifier: Modifier = Modifier.fillMaxSize(),
     panX: () -> Float = { 0f },
+    renderScale: () -> Float = { 1f },
 ) {
     Box(
         modifier.background(bgColor),
@@ -1605,8 +1612,22 @@ private fun ReaderPage(
                                     translationY = zoomState.offset.y
                                 }
                         } else {
-                            // 连续列表：布局已按整列缩放撑开，这里只做水平平移
-                            Modifier.graphicsLayer { translationX = panX() }
+                            // 连续列表：页框已按整列缩放撑高，图像本体必须同步等比放大
+                            // （Fit/FillWidth 都把图居中绘在框内，故框中心 = 图中心；绕中心
+                            //   放大 s 倍后图恰好填满 baseH×s 的框，页页首尾相接不重叠）。
+                            //
+                            // 用 canvas 变换而不是 graphicsLayer：两者绘制结果等价，但图层会
+                            // 把本节点的 boundsInRoot 一并放大 s 倍（语义/几何口径失真，
+                            // ContinuousZoomAnchorTest 这类按页面矩形反推缩放的测试会失效），
+                            // canvas 变换只影响绘制、不动布局与语义坐标。
+                            Modifier.drawWithContent {
+                                withTransform({
+                                    translate(panX(), 0f)
+                                    scale(renderScale(), renderScale(), pivot = center)
+                                }) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
                         },
                     ),
             )

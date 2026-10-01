@@ -91,6 +91,23 @@ class WebDavClient {
         }
     }
 
+    /**
+     * DAV 探活：仅当 PROPFIND Depth:0 返回 207 Multistatus 才算「对端是 WebDAV 服务」。
+     * 不能用 TCP connect 代替：端口可能被别的程序占用（本地 devserver 对 PROPFIND 返 501），
+     * 那样会让集成测试误判为服务器可用，进而在断言处失败而不是按预期跳过。
+     * 认证可不传——探活只关心对端是否讲 DAV，401 也不该被当成「可用」。
+     */
+    fun isDavServer(url: String): Boolean {
+        val normalized = url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        return try {
+            CLIENT.newCall(propfindRequest(normalized, "", "", depth = 0)).execute().use { resp ->
+                resp.code == 207
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** 列目录：PROPFIND Depth:1，解析 207 multistatus。失败抛 IOException，由调用方决定是否继续 */
     fun listDir(url: String, user: String, pass: String): List<WebDavEntry> {
         val httpUrl = url.toHttpUrlOrNull() ?: throw IOException("无效的 URL: $url")

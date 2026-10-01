@@ -16,7 +16,7 @@ import org.robolectric.RobolectricTestRunner
  *
  * 覆盖：浅层列目录、中文/空格路径编码、目录识别、自身条目跳过。
  *
- * 服务器未运行时自动跳过（Assume），可在 CI 环境安全存在。
+ * 服务器未运行、或 8899 被非 DAV 服务占用时自动跳过（Assume），可在 CI 环境安全存在。
  */
 @RunWith(RobolectricTestRunner::class)
 class WebDavLocalServerTest {
@@ -24,15 +24,13 @@ class WebDavLocalServerTest {
     private val client = WebDavClient()
     private val base = "http://127.0.0.1:8899/"
 
-    /** 探测本地测试服务器（127.0.0.1:8899）是否在运行 */
-    private val serverAvailable: Boolean by lazy {
-        try {
-            java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", 8899), 500) }
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
+    /**
+     * 探测本地 8899 是否是一个可用的 WebDAV 服务。
+     * 只用 TCP connect 不够：端口可能被非 DAV 服务占用（本机 devserver 对 PROPFIND 返 501），
+     * 那样会误判为「服务器可用」而在断言处失败。改用最小 PROPFIND Depth:0 探活，
+     * 仅 207 Multistatus 视为可用，否则 Assume 跳过。
+     */
+    private val serverAvailable: Boolean by lazy { client.isDavServer(base) }
 
     @Test
     fun listRootDirParsesEntries() {
