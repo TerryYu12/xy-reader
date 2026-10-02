@@ -24,7 +24,10 @@ import com.xyreader.core.WebDavConfigEntity
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.math.max
+import kotlin.math.min
 import org.apache.commons.compress.archivers.zip.ZipFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +52,10 @@ private val KEY_REPO_URIS = stringSetPreferencesKey("repo_uris")
 
 /** 自定义封面最大宽度（与扫描生成封面一致，px） */
 private const val CUSTOM_COVER_MAX_WIDTH = 512
+
+/** 分组封面边长上限；先采样再缩放，避免解码超大原图占满堆内存。 */
+private const val GROUP_COVER_MAX_WIDTH = 512
+private const val GROUP_COVER_MAX_HEIGHT = 768
 
 /**
  * core.LibraryRepository 的 data 层实现。
@@ -652,6 +659,87 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
         }
     }
 
+    override suspend fun setGroupCover(groupId: Long, path: String?): Boolean = withContext(Dispatchers.IO) {
+        if (groupDao.getGroupById(groupId) == null) return@withContext false
+        if (path != null && !File(path).isFile) return@withContext false
+        groupDao.updateGroupCover(groupId, path) > 0
+    }
+
+    override suspend fun importGroupCover(groupId: Long, uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        if (groupDao.getGroupById(groupId) == null) return@withContext false
+        val resolver = appContext.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val boundsRead = try {
+            resolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+                bounds.outWidth > 0 && bounds.outHeight > 0
+            } == true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+        if (!boundsRead) {
+            return@withContext false
+        }
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = groupCoverSampleSize(bounds.outWidth, bounds.outHeight)
+        }
+        val bitmap = try {
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext false
+
+        var scaledBitmap: Bitmap? = null
+        var outputFile: File? = null
+        var coverCommitted = false
+        try {
+            val scale = min(
+                1f,
+                min(
+                    GROUP_COVER_MAX_WIDTH.toFloat() / bitmap.width,
+                    GROUP_COVER_MAX_HEIGHT.toFloat() / bitmap.height,
+                ),
+            )
+            val output = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    bitmap,
+                    max(1, (bitmap.width * scale).toInt()),
+                    max(1, (bitmap.height * scale).toInt()),
+                    true,
+                ).also { scaledBitmap = it }
+            } else {
+                bitmap
+            }
+            val directory = File(appContext.filesDir, "group_covers")
+            if (!directory.exists() && !directory.mkdirs()) return@withContext false
+            val newFile = File.createTempFile("g$groupId-", ".jpg", directory)
+            outputFile = newFile
+            val compressed = FileOutputStream(newFile).use { stream ->
+                val success = output.compress(Bitmap.CompressFormat.JPEG, 88, stream)
+                stream.flush()
+                success
+            }
+            if (!compressed) return@withContext false
+
+            // 组可能在图片处理过程中已被删除；只有数据库成功更新后才公布新路径。
+            coverCommitted = groupDao.updateGroupCover(groupId, newFile.absolutePath) > 0
+            coverCommitted
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        } finally {
+            if (!coverCommitted) outputFile?.let { if (it.exists()) it.delete() }
+            scaledBitmap?.recycle()
+            bitmap.recycle()
+        }
+    }
+
     /** 删除分组：组内书先全部回到未分组（groupId 置空），再删分组本身，不删书 */
     override suspend fun removeGroup(id: Long) {
         withContext(Dispatchers.IO) {
@@ -706,4 +794,16 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
                     .thenByDescending { it.addedAt },
             )
         }
+}
+
+private fun groupCoverSampleSize(width: Int, height: Int): Int {
+    var sampleSize = 1
+    while (
+        width / sampleSize > GROUP_COVER_MAX_WIDTH * 2 ||
+        height / sampleSize > GROUP_COVER_MAX_HEIGHT * 2
+    ) {
+        if (sampleSize > Int.MAX_VALUE / 2) break
+        sampleSize *= 2
+    }
+    return sampleSize
 }

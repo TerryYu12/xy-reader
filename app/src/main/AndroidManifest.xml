@@ -5,6 +5,9 @@
     <!-- 网络访问：远程仓库（WebDAV / Google Drive）必需 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 内置更新器：允许应用请求「安装未知应用」权限，并在授权后调起系统安装器安装下载的 APK -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- 允许明文 HTTP（usesCleartextTraffic）：兼容自建服务器（Alist、局域网 WebDAV 等默认 http）。
          公网服务（坚果云 / Google Drive）本身走 HTTPS，不受此开关影响。 -->
     <application
@@ -191,5 +194,17 @@
                 <data android:pathPattern=".*\\.ZIP" />
             </intent-filter>
         </activity>
+
+        <!-- 内置更新器：把 cacheDir/update/ 下已下载的 APK 以 content:// 安全共享给系统安装器。
+             exported=false + grantUriPermissions=true：仅按 Intent 一次性授权，不对外暴露文件。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.xyreader.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

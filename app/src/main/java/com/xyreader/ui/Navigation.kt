@@ -170,13 +170,14 @@ fun ArkNavHost() {
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding),
-        ) {
+            ) {
             // 首页：搜索 + 封面网格 + FAB 扫描
             composable(Routes.HOME) {
                 HomeScreen(
                     onOpenBook = { bookId -> nav.openBookDetail(bookId) },
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onOpenReader = { bookId -> nav.openBook(bookId, page = 0) },
+                    onOpenGroup = { groupId -> nav.navigate("shelf/group/$groupId") },
                 )
             }
 
@@ -332,7 +333,10 @@ fun ArkNavHost() {
                     startFromBeginning = restart,
                 )
             }
+
         }
+            // 全局更新器宿主与路由同级，切到设置/书架/阅读页后仍可呈现手动检查结果。
+            UpdateHost()
             if (importing) {
                 // 导入中遮罩：大文件（数百 MB 漫画）拷贝可能停留数秒，给用户明确反馈
                 Box(

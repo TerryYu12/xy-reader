@@ -23,7 +23,7 @@ import com.xyreader.core.WebDavConfigEntity
         GoogleDriveAccountEntity::class,
         LocalRepoEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class ArkDatabase : RoomDatabase() {
@@ -128,6 +128,13 @@ abstract class ArkDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 → v6：为分组添加可空自定义封面路径，不改写任何已有分组或书籍数据。 */
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE book_groups ADD COLUMN coverPath TEXT")
+            }
+        }
+
         @Volatile
         private var instance: ArkDatabase? = null
 
@@ -139,7 +146,13 @@ abstract class ArkDatabase : RoomDatabase() {
                     ArkDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                    )
                     .build()
                     .also { instance = it }
             }

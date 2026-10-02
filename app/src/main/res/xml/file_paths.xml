@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可共享路径：仅暴露 cacheDir/update/ 下的更新 APK，供系统安装器读取 -->
+<paths>
+    <cache-path
+        name="update"
+        path="update/" />
+</paths>

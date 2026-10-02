@@ -52,6 +52,8 @@ data class BookGroupEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val createdAt: Long,
+    /** 应用私有目录中的自定义封面副本；未设置时为空 */
+    val coverPath: String? = null,
 )
 
 /** 阅读器内添加的书签 */

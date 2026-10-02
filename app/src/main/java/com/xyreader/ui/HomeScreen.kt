@@ -1,5 +1,7 @@
 package com.xyreader.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -50,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,12 +96,13 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-/** 首页：品牌顶栏（搜索 + 主题切换 + 设置）、继续阅读焦点卡、分类、封面网格；长按拖动可手动排序、分组或删除；右下角「开始阅读」菜单（四选项）。 */
+/** 首页：品牌顶栏、继续阅读、分类与分组抽屉、封面网格；长按拖动可手动排序、分组或删除。 */
 @Composable
 fun HomeScreen(
     onOpenBook: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenReader: (Long) -> Unit,
+    onOpenGroup: (Long) -> Unit,
 ) {
     val repo = rememberLibraryRepository()
     val context = LocalContext.current
@@ -118,6 +122,17 @@ fun HomeScreen(
     var showAddGroup by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var previewOrder by remember { mutableStateOf<List<Long>?>(null) }
+    var pendingGroupCoverId by remember { mutableStateOf<Long?>(null) }
+    val groupCoverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val groupId = pendingGroupCoverId
+        pendingGroupCoverId = null
+        if (uri != null && groupId != null) {
+            scope.launch {
+                val imported = repo.importGroupCover(groupId, uri)
+                snackbar.showSnackbar(if (imported) "分组封面已更新" else "分组封面导入失败")
+            }
+        }
+    }
 
     val allBooks by remember(repo, sort) {
         repo.books(ShelfSection.ALL, sort, "")
@@ -160,9 +175,15 @@ fun HomeScreen(
 
     val dragState = remember { BookGridDragState() }
     val dropTargets = remember(groups) {
-        listOf(BookDropTarget("home-ungrouped", null, "未分组")) + groups.map { group ->
-            BookDropTarget("home-group-${group.id}", group.id, group.name)
+        listOf(BookDropTarget("home-ungrouped", null, "未分组")) + groups.flatMap { group ->
+            listOf(
+                BookDropTarget("home-group-${group.id}", group.id, group.name),
+                BookDropTarget("home-folder-${group.id}", group.id, group.name),
+            )
         }
+    }
+    val groupBookCounts = remember(groups, allBooks) {
+        groups.associate { group -> group.id to allBooks.count { it.groupId == group.id } }
     }
     val onToggleFavorite: (BookEntity) -> Unit = { book -> scope.launch { repo.toggleFavorite(book.id) } }
     val onDeleteBook: (BookEntity) -> Unit = { book -> scope.launch { repo.deleteBook(book.id) } }
@@ -237,12 +258,16 @@ fun HomeScreen(
                     )
                     groups.forEach { group ->
                         val key = "group:${group.id}"
+                        val dropKey = "home-group-${group.id}"
+                        DisposableEffect(dragState, dropKey) {
+                            onDispose { dragState.unregisterTarget(dropKey) }
+                        }
                         HomeCategoryChip(
                             label = group.name,
                             selected = activeCategory == key,
                             onClick = { activeCategory = key },
                             modifier = Modifier.onGloballyPositioned {
-                                dragState.registerTarget("home-group-${group.id}", it.boundsInRoot())
+                                dragState.registerTarget(dropKey, it.boundsInRoot())
                             },
                         )
                     }
@@ -274,6 +299,36 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                HomeGroupFolderSection(
+                    groups = groups,
+                    bookCounts = groupBookCounts,
+                    dragState = dragState,
+                    onOpenGroup = onOpenGroup,
+                    onRenameGroup = { groupId, name ->
+                        val duplicate = groups.any {
+                            it.id != groupId && it.name.equals(name.trim(), ignoreCase = true)
+                        }
+                        if (duplicate) {
+                            scope.launch { snackbar.showSnackbar("已有同名分组") }
+                        } else {
+                            scope.launch {
+                                repo.renameGroup(groupId, name.trim())
+                                snackbar.showSnackbar("分组已重命名")
+                            }
+                        }
+                    },
+                    onPickCover = { groupId ->
+                        pendingGroupCoverId = groupId
+                        groupCoverPicker.launch("image/*")
+                    },
+                    onClearCover = { groupId ->
+                        scope.launch {
+                            val cleared = repo.setGroupCover(groupId, null)
+                            snackbar.showSnackbar(if (cleared) "已清除分组封面" else "清除分组封面失败")
+                        }
+                    },
+                )
 
                 // 数量 + 排序行：左侧「N 本书」，右侧带当前排序标签的下拉按钮
                 LibraryToolbar(
@@ -372,6 +427,7 @@ fun HomeScreen(
             dismissButton = { TextButton(onClick = { showAddGroup = false }) { Text("取消") } },
         )
     }
+
 }
 
 /**

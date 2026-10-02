@@ -109,6 +109,10 @@ internal class BookGridDragState {
     fun registerTarget(key: String, bounds: Rect) {
         targetBoundsInRoot[key] = bounds
     }
+
+    fun unregisterTarget(key: String) {
+        targetBoundsInRoot.remove(key)
+    }
 }
 
 /** 首页、分组页和书架列表共用的双列封面网格。 */
@@ -561,6 +565,9 @@ internal fun BookCard(
 
 @Composable
 internal fun BookDropTargetChip(target: BookDropTarget, state: BookGridDragState) {
+    DisposableEffect(state, target.key) {
+        onDispose { state.unregisterTarget(target.key) }
+    }
     Surface(
         modifier = Modifier.onGloballyPositioned { state.registerTarget(target.key, it.boundsInRoot()) },
         shape = RoundedCornerShape(999.dp),

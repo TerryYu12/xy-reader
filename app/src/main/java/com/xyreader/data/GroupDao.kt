@@ -33,6 +33,10 @@ interface GroupDao {
     @Query("UPDATE book_groups SET name = :name WHERE id = :id")
     suspend fun updateGroupName(id: Long, name: String)
 
+    /** 设置或清除分组自定义封面路径 */
+    @Query("UPDATE book_groups SET coverPath = :coverPath WHERE id = :id")
+    suspend fun updateGroupCover(id: Long, coverPath: String?): Int
+
     /** 按 id 删除分组（组内书籍需先由调用方清空归属） */
     @Query("DELETE FROM book_groups WHERE id = :id")
     suspend fun deleteGroupById(id: Long)

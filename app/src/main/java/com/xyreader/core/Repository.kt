@@ -1,5 +1,6 @@
 package com.xyreader.core
 
+import android.net.Uri
 import kotlinx.coroutines.flow.Flow
 
 /** 书库排序方式 */
@@ -126,6 +127,12 @@ interface LibraryRepository {
     suspend fun addGroup(name: String): Long
 
     suspend fun renameGroup(id: Long, name: String)
+
+    /** 设置或清除自定义封面路径；清除或替换时保留旧文件，避免误删已有用户数据。 */
+    suspend fun setGroupCover(groupId: Long, path: String?): Boolean
+
+    /** 从 SAF 图片 URI 导入分组封面到应用私有目录。 */
+    suspend fun importGroupCover(groupId: Long, uri: Uri): Boolean
 
     /** 删除分组；组内书自动回到未分组（不删书） */
     suspend fun removeGroup(id: Long)

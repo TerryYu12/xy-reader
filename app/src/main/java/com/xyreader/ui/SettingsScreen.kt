@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,6 +85,7 @@ fun SettingsScreen(
     onOpenSupport: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var showAccentPicker by remember { mutableStateOf(false) }
 
@@ -180,10 +182,18 @@ fun SettingsScreen(
                 SettingRow(
                     icon = Icons.Outlined.Info,
                     title = "版本",
-                    subtitle = "随安装版本变化",
+                    subtitle = "点击检查更新",
                     iconTint = accentColor(AccentColor.GRAY),
                     tailText = BuildConfig.VERSION_NAME,
-                    onClick = null,
+                    showChevron = true,
+                    onClick = {
+                        scope.launch {
+                            runManualCheck(context) { msg ->
+                                // msg == null 表示已发现新版本（对话框已弹），无需 Snackbar
+                                if (msg != null) scope.launch { snackbar.showSnackbar(msg) }
+                            }
+                        }
+                    },
                 )
                 RowDivider()
                 SettingRow(
