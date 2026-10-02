@@ -2,7 +2,7 @@
 
 日期：2026-10-01/02
 版本：**0.5.0 / versionCode 24**
-交付物：`outputs/XY-READER-0.5.0.apk`（22,595,865 B；md5 `7868807bc93d59bab8779b6d14c6ad68`，含反馈第二轮修订）
+交付物：`outputs/XY-READER-0.5.0.apk`（22,595,865 B；md5 `b76d13e5dde4e39ddbc77ff50ed86951`，含反馈第二轮修订 + 图标 A 案定稿）
 设计源：`outputs/ui-preview/index.html`（Codex 产出、master 已验收）+ home-*.jpg / reader-*.jpg
 任务书：`docs/superpowers/plans/2026-10-01-ui-redesign-landing.md`（含第二轮任务区）
 
@@ -62,7 +62,7 @@ master 复核反馈：① 强调色要能在设置里改（此前理解为「图
 
 1. **强调色可选设置**：`ui/ThemeAccent.kt`（8 档：蓝紫/海蓝/青碧/翠绿/琥珀/珊瑚/玫红/紫罗兰，明暗两套 primary/container 系）；`ThemePrefsStore.accent`（key `accent_color`）；MainActivity 经 `LocalThemeAccent / LocalSetThemeAccent` 下发；`ArkTheme(accent=)` 覆盖主色系。设置页新增「外观 → 强调色」选择器（44dp 圆色块 ×8 两行、点选即全局生效、选中环+对勾、完成关闭）。
    **真机往返实测**：翠绿 → 继续阅读按钮/FAB 立即变 `#81C995` 系、书架/设置同步；复位蓝紫还原 `#A5B4FC` ✓（像素级核验）。
-2. **图标**：前景 PNG 提取白色主体（去内嵌海军蓝、柔化边缘；md5 验证替换入 res，28.5KB）；启动器背景 = 默认强调色深阶 `#3D4488`（B 案，与主页图标同色系）；**主页左上角图标 = 白主体 + primaryContainer，实时跟随强调色**。
+2. **图标**：前景 PNG 提取白色主体（去内嵌海军蓝、柔化边缘；md5 验证替换入 res，28.5KB）；启动器背景 = **默认强调色亮阶 `#A5B4FC`（A 案，master 选定）**；**主页左上角图标 = 白主体 + `primary`（亮阶），实时跟随强调色**。
 3. **继续阅读卡 → 紧凑横条**（对齐 `.continue-strip` 手机版）：缩略图 44×56 + 单行书名 + 「第 N 页 · P%」 + 3dp 进度条 + 小胶囊按钮；实测占屏约 8-10%（原大卡约 17%+）。「新建分组」改**虚线描边**（`.chip.add`，readback 确认）。
 4. **仓库管理系四页（Repos/RemoteRepos/RepoConfig/Gdrive）+ 隐私/支持**统一新设计语言（子页头 + settings-card 行；全仓已无 TopAppBar 使用）。
 
