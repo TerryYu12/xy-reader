@@ -1,6 +1,7 @@
 package com.xyreader.ui
 
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,8 +44,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,7 +76,6 @@ private data class PendingScanReport(
  * 扫描报告弹层（用时 / 新增 / 更新 / 删除四格统计）；三点菜单提供 配置仓库 与
  * 删除仓库（删除会连带移除仓库内已入库的书）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReposScreen(
     onBack: () -> Unit,
@@ -120,19 +117,6 @@ fun ReposScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("本地仓库管理", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (scan.isScanning) {
@@ -170,34 +154,46 @@ fun ReposScreen(
             }
         },
     ) { padding ->
-        when {
-            localRepos.isEmpty() && !scan.isScanning -> EmptyState(
-                icon = Icons.Outlined.FolderOpen,
-                title = "还没有仓库",
-                subtitle = "添加一个文件夹，扫描里面的漫画入库",
-                modifier = Modifier.padding(padding),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            SubpageHead(
+                title = "本地仓库管理",
+                subtitle = "扫描设备文件夹，把漫画入库",
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (scan.isScanning) {
-                    item(key = "scanning-caption") {
-                        ScanningCaption(Modifier.padding(horizontal = 2.dp, vertical = 2.dp))
+            when {
+                localRepos.isEmpty() && !scan.isScanning -> EmptyState(
+                    icon = Icons.Outlined.FolderOpen,
+                    title = "还没有仓库",
+                    subtitle = "添加一个文件夹，扫描里面的漫画入库",
+                    modifier = Modifier.weight(1f),
+                )
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (scan.isScanning) {
+                        item(key = "scanning-caption") {
+                            ScanningCaption(Modifier.padding(horizontal = 2.dp, vertical = 2.dp))
+                        }
                     }
-                }
-                items(localRepos, key = { it.id }) { item ->
-                    LocalRepoCard(
-                        item = item,
-                        isScanning = item.id in scanningIds,
-                        onToggleEnabled = { enabled ->
-                            scope.launch { repo.setLocalRepoEnabled(item.id, enabled) }
-                        },
-                        onRefresh = { startScan(item) },
-                        onConfigure = { onOpenConfig(item.id) },
-                        onRemove = { pendingRemove = item },
-                    )
+                    items(localRepos, key = { it.id }) { item ->
+                        LocalRepoCard(
+                            item = item,
+                            isScanning = item.id in scanningIds,
+                            onToggleEnabled = { enabled ->
+                                scope.launch { repo.setLocalRepoEnabled(item.id, enabled) }
+                            },
+                            onRefresh = { startScan(item) },
+                            onConfigure = { onOpenConfig(item.id) },
+                            onRemove = { pendingRemove = item },
+                        )
+                    }
                 }
             }
         }
@@ -253,8 +249,9 @@ private fun LocalRepoCard(
     val contentAlpha = if (item.enabled) 1f else 0.5f
 
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -265,16 +262,18 @@ private fun LocalRepoCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Surface(
-                    modifier = Modifier.alpha(contentAlpha),
-                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.alpha(contentAlpha).size(38.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                     contentColor = MaterialTheme.colorScheme.primary,
                 ) {
-                    Icon(
-                        Icons.Outlined.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.padding(11.dp).size(20.dp),
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
                 Column(Modifier.weight(1f).alpha(contentAlpha)) {
                     Text(
@@ -532,3 +531,54 @@ private fun prettyRepoAddress(uriString: String): String = runCatching {
     val raw = Uri.parse(uriString).lastPathSegment ?: return@runCatching uriString
     Uri.decode(raw).removePrefix("tree/").ifBlank { uriString }
 }.getOrDefault(uriString)
+
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

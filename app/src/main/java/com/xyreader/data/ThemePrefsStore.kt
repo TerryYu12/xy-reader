@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.xyreader.ui.ThemeAccent
 import com.xyreader.ui.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -18,6 +19,9 @@ private val Context.themeModeDataStore by preferencesDataStore(name = "theme_mod
 
 /** 存 ThemeMode.name；缺失或非法值回退跟随系统 */
 private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+
+/** 存 ThemeAccent.name；缺失或非法值回退默认蓝紫 */
+private val KEY_ACCENT = stringPreferencesKey("accent_color")
 
 /**
  * 主题模式（跟随系统 / 深色 / 浅色）的持久化读写。
@@ -38,5 +42,16 @@ class ThemePrefsStore(context: Context) {
     /** 写入主题模式 */
     suspend fun set(mode: ThemeMode) {
         dataStore.edit { prefs -> prefs[KEY_THEME_MODE] = mode.name }
+    }
+
+    /** 当前强调色；未写入过或值非法时回退 [ThemeAccent.LAVENDER] */
+    val accent: Flow<ThemeAccent> = dataStore.data.map { prefs ->
+        val raw = prefs[KEY_ACCENT]
+        raw?.let { runCatching { ThemeAccent.valueOf(it) }.getOrNull() } ?: ThemeAccent.LAVENDER
+    }
+
+    /** 写入强调色 */
+    suspend fun setAccent(accent: ThemeAccent) {
+        dataStore.edit { prefs -> prefs[KEY_ACCENT] = accent.name }
     }
 }

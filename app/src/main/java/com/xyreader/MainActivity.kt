@@ -14,8 +14,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.data.ThemePrefsStore
 import com.xyreader.ui.ArkNavHost
 import com.xyreader.ui.ArkTheme
+import com.xyreader.ui.LocalSetThemeAccent
 import com.xyreader.ui.LocalSetThemeMode
+import com.xyreader.ui.LocalThemeAccent
 import com.xyreader.ui.LocalThemeMode
+import com.xyreader.ui.ThemeAccent
 import com.xyreader.ui.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -39,11 +42,16 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
                 ThemeMode.LIGHT -> false
             }
+            val accent by themePrefs.accent.collectAsStateWithLifecycle(
+                initialValue = ThemeAccent.LAVENDER,
+            )
             CompositionLocalProvider(
                 LocalThemeMode provides themeMode,
                 LocalSetThemeMode provides { mode -> scope.launch { themePrefs.set(mode) } },
+                LocalThemeAccent provides accent,
+                LocalSetThemeAccent provides { a -> scope.launch { themePrefs.setAccent(a) } },
             ) {
-                ArkTheme(darkTheme = darkTheme) {
+                ArkTheme(darkTheme = darkTheme, accent = accent) {
                     ArkNavHost()
                 }
             }

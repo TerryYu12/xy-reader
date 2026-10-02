@@ -1,5 +1,6 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,9 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -33,8 +32,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +40,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,7 +53,6 @@ import kotlinx.coroutines.launch
  * 预填当前值的表单——仓库名（≤30 字）、封面文件名约定（≤10 字，多章节漫画根目录用）、
  * 默认添加分组（新扫描的书自动归组）。保存走 updateLocalRepoConfig，成功提示后返回。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
@@ -72,35 +67,33 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
     val current = reposState?.firstOrNull { it.id == repoId }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("配置仓库", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        when {
-            // Room 流首帧尚未发射：居中加载态
-            reposState == null -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-            // 仓库不存在（已删除或非法参数）：错误态 + 返回
-            current == null -> RepoNotFoundState(
-                modifier = Modifier.fillMaxSize().padding(padding),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            SubpageHead(
+                title = "配置仓库",
+                subtitle = "名称、封面约定与默认分组",
                 onBack = onBack,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
-            else -> {
+            when {
+                // Room 流首帧尚未发射：居中加载态
+                reposState == null -> Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+                // 仓库不存在（已删除或非法参数）：错误态 + 返回
+                current == null -> RepoNotFoundState(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    onBack = onBack,
+                )
+                else -> {
                 // 表单初始值以仓库 id 为 key 记住：flow 重复发射同 id 仓库时不重置用户输入
                 val initial = remember(current.id) {
                     Triple(current.name, current.coverFileName, current.defaultGroupId)
@@ -112,8 +105,8 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
+                        .fillMaxWidth()
+                        .weight(1f)
                         // 纵向可滚动兜底小屏；imePadding 键盘弹出时内容整体上移
                         .verticalScroll(rememberScrollState())
                         .imePadding()
@@ -296,6 +289,7 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
                     }
                 }
             }
+            }
         }
     }
 }
@@ -343,5 +337,56 @@ private fun RepoNotFoundState(modifier: Modifier = Modifier, onBack: () -> Unit)
         )
         Spacer(Modifier.size(20.dp))
         Button(onClick = onBack) { Text("返回") }
+    }
+}
+
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

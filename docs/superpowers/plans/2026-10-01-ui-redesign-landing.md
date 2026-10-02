@@ -85,3 +85,11 @@ master 指示：**① 只用新主题、布局以新主题为准（全应用统�
 
 - 2026-10-02：第二轮全部完成并验证（书架/设置系/分组/详情/默认封面；集成期修 BookCover 角标重叠、补 GroupBooksScreen 子页头；111 单测 + lint + MuMu 全页面截图全绿）。
 
+## 反馈第二轮（2026-10-02，master 复核后）
+
+- **强调色改为可选设置项**（理解纠偏：不是「图标块各自上色」）：新增 `ui/ThemeAccent.kt`（8 档：蓝紫/海蓝/青碧/翠绿/琥珀/珊瑚/玫红/紫罗兰，各含明暗两套 primary/container/on 系）；`ThemePrefsStore` 加 `accent_color`；MainActivity 下发 `LocalThemeAccent / LocalSetThemeAccent`；`ArkTheme(accent=)` 依档覆盖主色系。默认蓝紫＝原观感。设置页「外观 → 强调色」选择器：子代理实施中。
+- **应用/品牌图标**：白色主体已从前景 PNG 单独提取（去内嵌海军蓝、柔化边缘；md5 验证替换入 res）；主页左上角图标＝白主体＋主色容器底，**实时跟随强调色**；启动器（桌面）图标为静态资源，底色用默认强调色——待 master 选：**A 亮阶 #A5B4FC / B 深阶 #3D4488**（预览图已发）。
+- **继续阅读卡改紧凑横条**（对齐 `.continue-strip`）：缩略图 44×56 + 单行书名 + 「第 N 页 · P%」+ 3dp 进度条 + 小胶囊按钮；「新建分组」改**虚线描边**（对齐 `.chip.add`）。已落码。
+- **仓库系四页（Repos/RemoteRepos/RepoConfig/Gdrive）+ 隐私/支持**统一到新设计语言：子代理实施中。
+- 待 master 输入：① 图标底色 A/B；② 「UI 没完全沿用新 UI」的其余点名（我已知并已补：仓库系+隐私/支持）。
+

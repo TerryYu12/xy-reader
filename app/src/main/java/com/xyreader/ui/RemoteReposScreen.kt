@@ -1,5 +1,6 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,8 +47,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,7 +56,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -74,7 +72,6 @@ import kotlinx.coroutines.launch
  * （测试连接 + 保存）。扫描与测试均为 suspend 调用，repository 内部已切 IO，
  * UI 层直接 rememberCoroutineScope + scope.launch。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RemoteReposScreen(onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
@@ -110,19 +107,6 @@ fun RemoteReposScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("远程仓库管理", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             // 与首页/本地仓库页一致的 primary 色圆角方形 FAB
@@ -136,25 +120,37 @@ fun RemoteReposScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        if (configs.isEmpty()) {
-            RemoteEmptyState(Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // 能力说明条：流式阅读 vs 下载缓存
-                item(key = "stream-info") { StreamInfoCard() }
-                items(configs, key = { it.id }) { config ->
-                    RemoteRepoCard(
-                        config = config,
-                        isScanning = config.id in scanningIds,
-                        onScan = { startScan(config.id) },
-                        onRemove = { pendingRemove = config },
-                    )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            SubpageHead(
+                title = "远程仓库管理",
+                subtitle = "WebDAV · 流式阅读不占空间",
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            if (configs.isEmpty()) {
+                RemoteEmptyState(Modifier.weight(1f))
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    // 能力说明条：流式阅读 vs 下载缓存
+                    item(key = "stream-info") { StreamInfoCard() }
+                    items(configs, key = { it.id }) { config ->
+                        RemoteRepoCard(
+                            config = config,
+                            isScanning = config.id in scanningIds,
+                            onScan = { startScan(config.id) },
+                            onRemove = { pendingRemove = config },
+                        )
+                    }
                 }
             }
         }
@@ -227,8 +223,9 @@ private fun RemoteEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun StreamInfoCard() {
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier
@@ -239,8 +236,8 @@ private fun StreamInfoCard() {
         ) {
             // 图标块：淡 primary 底色圆角块，与设置页行图标同语言
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -271,8 +268,9 @@ private fun RemoteRepoCard(
 ) {
     val greenTint = accentColor(AccentColor.GREEN)
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier
@@ -282,15 +280,15 @@ private fun RemoteRepoCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = greenTint.copy(alpha = 0.12f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Outlined.Cloud,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = greenTint,
                     )
                 }
@@ -501,4 +499,55 @@ private fun normalizeWebDavUrl(raw: String): String {
 private fun shortenWebDavUrl(url: String): String {
     val schemeEnd = url.indexOf("://")
     return if (schemeEnd >= 0) url.substring(schemeEnd + 3) else url
+}
+
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }

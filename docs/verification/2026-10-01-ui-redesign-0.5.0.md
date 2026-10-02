@@ -2,7 +2,7 @@
 
 日期：2026-10-01/02
 版本：**0.5.0 / versionCode 24**
-交付物：`outputs/XY-READER-0.5.0.apk`（22,645,933 B；md5 `0c4298465a8d93cdd87d8156d18f645a`）
+交付物：`outputs/XY-READER-0.5.0.apk`（22,595,865 B；md5 `7868807bc93d59bab8779b6d14c6ad68`，含反馈第二轮修订）
 设计源：`outputs/ui-preview/index.html`（Codex 产出、master 已验收）+ home-*.jpg / reader-*.jpg
 任务书：`docs/superpowers/plans/2026-10-01-ui-redesign-landing.md`（含第二轮任务区）
 
@@ -56,11 +56,23 @@
 6. **默认封面真机验证**（构造法：导入首页损坏的 CBZ → 封面生成失败 → coverPath 为空）：网格卡显示渐变艺术封面（HARBOR 调色板像素核验 ✓、无渲染异常）；详情大封面角标/标题/书名三行垂直分离（修复后读图复核 ✓）。
 7. 书籍详情页（test4p/broken 两本）：新版式在屏、章节/动作齐全 ✓。
 
+## 四·二、反馈第二轮修订（2026-10-02）
+
+master 复核反馈：① 强调色要能在设置里改（此前理解为「图标块各自上色」，已纠偏）；② 应用图标白色主体单独提取、底色=强调色（含主页左上角）；③ 继续阅读卡占面积太大；④ UI 需完全沿用新设计（补未统一页面）。
+
+1. **强调色可选设置**：`ui/ThemeAccent.kt`（8 档：蓝紫/海蓝/青碧/翠绿/琥珀/珊瑚/玫红/紫罗兰，明暗两套 primary/container 系）；`ThemePrefsStore.accent`（key `accent_color`）；MainActivity 经 `LocalThemeAccent / LocalSetThemeAccent` 下发；`ArkTheme(accent=)` 覆盖主色系。设置页新增「外观 → 强调色」选择器（44dp 圆色块 ×8 两行、点选即全局生效、选中环+对勾、完成关闭）。
+   **真机往返实测**：翠绿 → 继续阅读按钮/FAB 立即变 `#81C995` 系、书架/设置同步；复位蓝紫还原 `#A5B4FC` ✓（像素级核验）。
+2. **图标**：前景 PNG 提取白色主体（去内嵌海军蓝、柔化边缘；md5 验证替换入 res，28.5KB）；启动器背景 = 默认强调色深阶 `#3D4488`（B 案，与主页图标同色系）；**主页左上角图标 = 白主体 + primaryContainer，实时跟随强调色**。
+3. **继续阅读卡 → 紧凑横条**（对齐 `.continue-strip` 手机版）：缩略图 44×56 + 单行书名 + 「第 N 页 · P%」 + 3dp 进度条 + 小胶囊按钮；实测占屏约 8-10%（原大卡约 17%+）。「新建分组」改**虚线描边**（`.chip.add`，readback 确认）。
+4. **仓库管理系四页（Repos/RemoteRepos/RepoConfig/Gdrive）+ 隐私/支持**统一新设计语言（子页头 + settings-card 行；全仓已无 TopAppBar 使用）。
+
+修订后最终自动化数据：**111 单测全绿**（2m58s）；`assembleRelease` 绿（6m45s）；`lintDebug` 绿（2m8s）；aapt `0.5.0/vc24/INTERNET`。
+
 ## 五、已知剩余（供 master 决策）
 
-- 未统一页面：仓库管理系 4 页（Repos/RemoteRepos/RepoConfig/Gdrive）+ 隐私/支持页仍为旧版式（次级页面）。
+- ~~未统一页面：仓库管理系 4 页 + 隐私/支持~~ → 已于反馈第二轮统一（见四·二）。
 - 阅读器页眉/页脚装饰元素（设计稿有）仍暂缓（涉及 NovelPageSource 排版，风险控制）。
-- 三处文件私有 SubpageHead 与书架 `ShelfSubpageHead` 可后续抽到公共组件；`NovelSpacingControls` 未套 `.pref-card` 外观。
+- 各页文件私有 SubpageHead 与书架 `ShelfSubpageHead` 可后续抽到公共组件；`NovelSpacingControls` 未套 `.pref-card` 外观；设置/书架的彩色图标块保留设计稿多色方案（未改为跟随强调色，待 master 定夺）。
 
 ## 六、待 master 确认
 

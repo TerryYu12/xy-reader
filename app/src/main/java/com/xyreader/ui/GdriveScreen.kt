@@ -1,5 +1,6 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +46,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,7 +55,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -79,7 +77,6 @@ import kotlinx.coroutines.launch
  * 长时间阻塞等待回调，绝不能在弹层内部 scope 里执行——弹层 dismiss 会取消
  * 其内部协程，导致授权流程被连带杀掉；页面级协程不受弹层关闭影响。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GdriveScreen(onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
@@ -138,19 +135,6 @@ fun GdriveScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Google Drive", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             // 与首页/本地仓库页一致的 primary 色圆角方形 FAB
@@ -164,25 +148,37 @@ fun GdriveScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        if (accounts.isEmpty()) {
-            GdriveEmptyState(Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // 顶部说明条：能力、网络要求与 OAuth 客户端创建指引
-                item(key = "gdrive-info") { GdriveInfoCard() }
-                items(accounts, key = { it.id }) { account ->
-                    GdriveAccountCard(
-                        account = account,
-                        isScanning = account.id in scanningIds,
-                        onScan = { startScan(account.id) },
-                        onRemove = { pendingRemove = account },
-                    )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            SubpageHead(
+                title = "Google Drive",
+                subtitle = "OAuth 授权与云端扫描",
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            if (accounts.isEmpty()) {
+                GdriveEmptyState(Modifier.weight(1f))
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    // 顶部说明条：能力、网络要求与 OAuth 客户端创建指引
+                    item(key = "gdrive-info") { GdriveInfoCard() }
+                    items(accounts, key = { it.id }) { account ->
+                        GdriveAccountCard(
+                            account = account,
+                            isScanning = account.id in scanningIds,
+                            onScan = { startScan(account.id) },
+                            onRemove = { pendingRemove = account },
+                        )
+                    }
                 }
             }
         }
@@ -237,8 +233,9 @@ private fun GdriveEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun GdriveInfoCard() {
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier
@@ -249,8 +246,8 @@ private fun GdriveInfoCard() {
         ) {
             // 图标块：淡 primary 底色圆角块，与设置页行图标同语言
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -284,8 +281,9 @@ private fun GdriveAccountCard(
 ) {
     val tertiaryTint = MaterialTheme.colorScheme.tertiary
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier
@@ -295,8 +293,8 @@ private fun GdriveAccountCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = tertiaryTint.copy(alpha = 0.12f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -488,3 +486,54 @@ private fun AddGdriveSheet(
 /** clientId 短化显示：前 8 字符 + 省略号（过短则原样展示） */
 private fun shortenClientId(clientId: String): String =
     if (clientId.length <= 8) clientId else clientId.take(8) + "…"
+
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

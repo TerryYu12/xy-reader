@@ -1,8 +1,10 @@
 package com.xyreader.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,10 +17,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Coffee
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,11 +42,16 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +85,7 @@ fun SettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    var showAccentPicker by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -90,6 +102,19 @@ fun SettingsScreen(
                 subtitle = "XY-READER 的阅读与书库选项",
                 onBack = onBack,
             )
+
+            GroupLabel("外观")
+            SettingsCard {
+                SettingRow(
+                    icon = Icons.Outlined.Palette,
+                    title = "强调色",
+                    subtitle = "界面主色调跟随所选颜色",
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    tailText = LocalThemeAccent.current.label,
+                    showChevron = true,
+                    onClick = { showAccentPicker = true },
+                )
+            }
 
             GroupLabel("仓库管理")
             SettingsCard {
@@ -182,6 +207,10 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(28.dp))
         }
+    }
+
+    if (showAccentPicker) {
+        AccentPickerDialog(onDismiss = { showAccentPicker = false })
     }
 }
 
@@ -333,11 +362,24 @@ private fun SettingRow(
         }
         when {
             tailBeta -> BetaTag()
-            tailText != null -> Text(
-                tailText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            tailText != null -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    tailText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (showChevron) {
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             showChevron -> Icon(
                 Icons.Outlined.ChevronRight,
                 contentDescription = null,
@@ -362,6 +404,124 @@ private fun BetaTag() {
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.tertiary,
+        )
+    }
+}
+
+/**
+ * 强调色选择弹窗（设置 → 外观 → 强调色）：
+ * 8 档色块两行四列，色块取该档当前明暗下的 primary；选中态 = 2dp primary 外环 + 中央 onPrimary 对勾；
+ * 点选即调 [LocalSetThemeAccent] 立即生效（不关窗，便于直接预览全局变化），底部「完成」关闭。
+ */
+@Composable
+private fun AccentPickerDialog(onDismiss: () -> Unit) {
+    val dark = when (LocalThemeMode.current) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    }
+    val selected = LocalThemeAccent.current
+    val setAccent = LocalSetThemeAccent.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                "强调色",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                ThemeAccent.values().toList().chunked(4).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        rowItems.forEach { accent ->
+                            AccentSwatch(
+                                accent = accent,
+                                selected = accent == selected,
+                                dark = dark,
+                                modifier = Modifier.weight(1f),
+                                onClick = { setAccent(accent) },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        },
+    )
+}
+
+/**
+ * 单个强调色色块：44dp 圆（取该档当前明暗下的 primary）+ 档名小字；
+ * 选中态叠加 2dp primary 外描边环与中央 onPrimary 对勾。
+ */
+@Composable
+private fun AccentSwatch(
+    accent: ThemeAccent,
+    selected: Boolean,
+    dark: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(2.dp)
+                    .clip(CircleShape)
+                    .background(accent.primary(dark)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = accent.onPrimary(dark),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            accent.label,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
         )
     }
 }

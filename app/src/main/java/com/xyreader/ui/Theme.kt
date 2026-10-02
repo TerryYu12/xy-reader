@@ -90,10 +90,20 @@ private val ArkShapes = Shapes(
 @Composable
 fun ArkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    accent: ThemeAccent = ThemeAccent.LAVENDER,
     content: @Composable () -> Unit,
 ) {
+    // 强调色主色系覆盖：primary / onPrimary / 容器与容器内容跟随所选强调色
+    val base = if (darkTheme) DarkColors else LightColors
+    val scheme = base.copy(
+        primary = accent.primary(darkTheme),
+        onPrimary = accent.onPrimary(darkTheme),
+        primaryContainer = accent.container(darkTheme),
+        onPrimaryContainer = accent.onContainer(darkTheme),
+        inversePrimary = accent.primary(!darkTheme),
+    )
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = scheme,
         shapes = ArkShapes,
         content = content,
     )

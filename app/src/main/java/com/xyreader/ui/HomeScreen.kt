@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,10 +60,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -241,12 +246,23 @@ fun HomeScreen(
                             },
                         )
                     }
+                    val addChipColor = MaterialTheme.colorScheme.primary
                     Surface(
                         onClick = { newGroupName = ""; showAddGroup = true },
                         shape = RoundedCornerShape(999.dp),
                         color = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                        contentColor = addChipColor,
+                        // 设计稿 .chip.add：虚线描边 + 主色文字
+                        modifier = Modifier.drawBehind {
+                            drawRoundRect(
+                                color = addChipColor,
+                                style = Stroke(
+                                    width = 1.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f), 0f),
+                                ),
+                                cornerRadius = CornerRadius(size.height / 2f),
+                            )
+                        },
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -464,101 +480,85 @@ private fun SearchField(
 }
 
 /**
- * 「继续阅读」焦点卡（对应设计源 `.continue-panel` / `.continue-strip`）：
- * 左列书名 + 「第 N 页 · P%」+ 细进度条 + 「继续阅读」胶囊按钮，右侧微倾的小封面。
+ * 「继续阅读」紧凑横条（对应设计源 `.continue-strip` 的手机版形态）：
+ * 左缩略图 + 单行书名 + 「第 N 页 · P%」+ 细进度条 + 右侧小胶囊按钮。
  */
 @Composable
 private fun ContinueReadingCard(book: BookEntity, onContinue: () -> Unit) {
     val progress = readProgress(book)
-    val shape = RoundedCornerShape(24.dp)
-    Box(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                    ),
-                ),
-            )
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), shape)
-            .padding(18.dp),
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Outlined.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "继续阅读",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    book.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "第 ${book.currentPage} 页 · $progress%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (progress > 0) {
-                    Spacer(Modifier.height(12.dp))
-                    ProgressTrack(progress = progress, height = 5.dp)
-                }
-                Spacer(Modifier.height(14.dp))
-                Surface(
-                    onClick = onContinue,
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("继续阅读", style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                    }
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            // 小封面：无封面时用新主题的默认封面（渐变艺术封面）；有真实封面时仍走 AsyncImage
-            Box(
-                modifier = Modifier.size(width = 84.dp, height = 116.dp)
-                    .rotate(4f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (book.coverPath == null) {
-                    DefaultBookCover(book = book, modifier = Modifier.fillMaxSize(), compact = true)
-                }
-                AsyncImage(
-                    model = book.coverPath?.let(::File),
-                    contentDescription = null,
+        // 缩略图：无封面时用默认封面（渐变艺术）；有真实封面走 AsyncImage
+        Box(
+            modifier = Modifier.size(width = 44.dp, height = 56.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (book.coverPath == null) {
+                DefaultBookCover(
+                    book = book,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+                    compact = true,
+                    showFormatBadge = false,
                 )
+            }
+            AsyncImage(
+                model = book.coverPath?.let(::File),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                book.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "第 ${book.currentPage} 页 · $progress%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (progress > 0) {
+                Spacer(Modifier.height(7.dp))
+                ProgressTrack(
+                    progress = progress,
+                    height = 3.dp,
+                    modifier = Modifier.widthIn(max = 240.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Surface(
+            onClick = onContinue,
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("继续阅读", style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
         }
     }
