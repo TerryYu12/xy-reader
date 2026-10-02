@@ -287,6 +287,12 @@ private fun DisplayGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Rea
             title = "屏幕",
             items = listOf(
                 SwitchSpec(
+                    title = "自动旋屏",
+                    hint = "按重力感应自动旋转屏幕；关闭后锁定竖屏",
+                    checked = LocalAutoRotate.current,
+                    onChange = LocalSetAutoRotate.current,
+                ),
+                SwitchSpec(
                     title = "屏幕常亮",
                     hint = "阅读时屏幕不自动熄灭",
                     checked = prefs.keepScreenOn,

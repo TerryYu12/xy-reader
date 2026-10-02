@@ -146,6 +146,8 @@ import com.xyreader.core.PageMode
 import com.xyreader.core.ReadBackground
 import com.xyreader.core.ReaderPrefs
 import com.xyreader.core.ScreenOrientation
+import com.xyreader.ui.LocalAutoRotate
+import com.xyreader.ui.LocalSetAutoRotate
 import com.xyreader.ui.formatDate
 import com.xyreader.ui.CapsuleTab
 import com.xyreader.ui.NovelSpacingControls
@@ -220,6 +222,8 @@ fun ReaderScreen(
     // 书签全量流（UI 按 bookId 过滤本书）；阅读配置提升到顶层供亮度作用与各分支共用
     val bookmarks by viewModel.bookmarks.collectAsState(initial = emptyList())
     val prefs by viewModel.readerPrefs.collectAsState()
+    // 全局「自动旋屏」（设置 → 显示）：关闭时本页也不跟随重力，锁定竖屏
+    val autoRotate = LocalAutoRotate.current
 
     // —— 状态栏：进入隐藏，离开恢复；部分环境拿不到 Activity，整体 try-catch 静默降级 ——
     val context = LocalContext.current
@@ -326,12 +330,18 @@ fun ReaderScreen(
             }
 
             ReaderPhase.Ready -> {
-                // 屏幕方向锁定：进阅读器应用配置，离开恢复由系统决定
-                DisposableEffect(prefs.screenOrientation) {
+                // 屏幕方向：进阅读器应用配置，离开恢复「自动旋屏」全局策略。
+                // 「跟随系统」这一档服从全局自动旋屏开关（开 = 重力感应自由旋转，关 = 锁定竖屏）；
+                // 显式「锁定竖屏 / 锁定横屏」优先级更高，不受全局开关影响。
+                DisposableEffect(prefs.screenOrientation, autoRotate) {
                     val activity = context.findActivity()
                     try {
                         activity?.requestedOrientation = when (prefs.screenOrientation) {
-                            ScreenOrientation.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            ScreenOrientation.SYSTEM -> if (autoRotate) {
+                                ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            } else {
+                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
                             ScreenOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                             ScreenOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         }
@@ -339,7 +349,12 @@ fun ReaderScreen(
                     }
                     onDispose {
                         try {
-                            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            // 离开阅读器：回到全局策略（而非一律 UNSPECIFIED，否则会冲掉「锁定竖屏」）
+                            activity?.requestedOrientation = if (autoRotate) {
+                                ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            } else {
+                                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
                         } catch (_: Exception) {
                         }
                     }
@@ -1403,6 +1418,24 @@ private fun SheetDisplayGroup(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Re
                 label = { Text(scale.label) },
             )
         }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "自动旋屏",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "按重力感应自动旋转屏幕；关闭后锁定竖屏",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = LocalAutoRotate.current,
+            onCheckedChange = LocalSetAutoRotate.current,
+        )
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
