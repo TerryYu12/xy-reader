@@ -28,11 +28,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +43,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -101,9 +104,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
@@ -113,12 +118,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -146,10 +153,25 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-/** 工具栏浮层统一样式：半透明深底 + 20dp 圆角 */
-private val BarBackground = Color(0xCC101318)
-private val BarCorner = RoundedCornerShape(20.dp)
 private const val BAR_ANIM_MS = 250
+
+/** 栏分割线颜色取色板 --line（outlineVariant）；栏底色取 --card（surfaceContainer），浅色主题自动切换 */
+
+/** 顶栏底部分割线：仅画一条 1dp 底边（可左右内缩，避免圆角外溢出线） */
+private fun Modifier.bottomHairline(color: Color, inset: Dp = 0.dp): Modifier = drawWithContent {
+    drawContent()
+    val h = 1.dp.toPx()
+    val x = inset.toPx()
+    drawRect(color, topLeft = Offset(x, size.height - h), size = Size(size.width - 2 * x, h))
+}
+
+/** 底栏顶部分割线：仅画一条 1dp 顶边 */
+private fun Modifier.topHairline(color: Color, inset: Dp = 0.dp): Modifier = drawWithContent {
+    drawContent()
+    val h = 1.dp.toPx()
+    val x = inset.toPx()
+    drawRect(color, topLeft = Offset(x, 0f), size = Size(size.width - 2 * x, h))
+}
 
 /** 页内双击放大的目标倍数 */
 private const val PAGE_ZOOM = 2.5f
@@ -454,8 +476,8 @@ private fun ReaderPagerArea(
     var lockBadgeVisible by remember { mutableStateOf(false) }
     // 阅读设置快捷面板开关
     var showSettings by remember { mutableStateOf(false) }
-    // 底部工具栏第一行显示内容：page = 页码滑条 / brightness = 亮度滑条（点亮度按钮切换）
-    var barMode by remember { mutableStateOf("page") }
+    // 亮度独立浮动弹层开关（点底栏「亮度」按钮切换；底部居中的浮动小卡片，无遮罩变暗）
+    var showBrightness by remember { mutableStateOf(false) }
     // 页内缩放状态：双指捏合与双击放大共用。图片书（漫画）横向模式整本共用这一份
     // scale/offset——翻页不清零，放大原点整本一致；文字小说由下面的 effect 翻页复位
     val pageZoom = remember { PageZoomState() }
@@ -696,7 +718,7 @@ private fun ReaderPagerArea(
             }
         }
 
-        // —— 顶部工具栏：返回 / 目录 / 书名 / 书签 / 收藏 ——
+        // —— 顶部工具栏：返回 / 目录 / 书名 / 书签 / 收藏 / 锁定（全宽贴顶，底边 1dp 分割线）——
         AnimatedVisibility(
             visible = toolbarVisible && !locked,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -705,31 +727,32 @@ private fun ReaderPagerArea(
         ) {
             Row(
                 modifier = Modifier
-                    .padding(WindowInsets.statusBars.asPaddingValues())
-                    .padding(start = 12.dp, end = 12.dp, top = 8.dp)
                     .fillMaxWidth()
-                    .background(BarBackground, BarCorner)
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .bottomHairline(MaterialTheme.colorScheme.outlineVariant)
+                    .heightIn(min = 54.dp)
+                    .padding(WindowInsets.statusBars.asPaddingValues())
+                    .padding(horizontal = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 IconButton(onClick = onOpenDirectory) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.ListIcon,
                         contentDescription = "目录",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Text(
                     text = title,
                     modifier = Modifier.weight(1f),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -738,7 +761,7 @@ private fun ReaderPagerArea(
                     Icon(
                         imageVector = Icons.Outlined.BookmarkAdd,
                         contentDescription = "添加书签",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 IconButton(onClick = viewModel::toggleFavorite) {
@@ -752,7 +775,7 @@ private fun ReaderPagerArea(
                         Icon(
                             imageVector = Icons.Outlined.FavoriteBorder,
                             contentDescription = "加入收藏",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -761,7 +784,7 @@ private fun ReaderPagerArea(
                     Icon(
                         imageVector = Icons.Outlined.LockOpen,
                         contentDescription = "锁定手势（防误触）",
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -795,91 +818,53 @@ private fun ReaderPagerArea(
 
             Column(
                 modifier = Modifier
-                    .padding(WindowInsets.navigationBars.asPaddingValues())
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
                     .fillMaxWidth()
-                    .background(BarBackground, BarCorner)
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .background(
+                        MaterialTheme.colorScheme.surfaceContainer,
+                        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+                    )
+                    .topHairline(MaterialTheme.colorScheme.outlineVariant, inset = 18.dp)
+                    .padding(WindowInsets.navigationBars.asPaddingValues())
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                // —— 第一行：页码滑条 / 亮度滑条 二选一（点亮度按钮切换），控制卡片高度 ——
-                if (barMode == "brightness") {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.Brightness6,
-                            contentDescription = "亮度",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        var brightnessDragging by remember { mutableStateOf(false) }
-                        // 跟随系统（null）时滑条显示近似值 50%
-                        var sliderBrightness by remember { mutableFloatStateOf(prefs.brightness ?: 0.5f) }
-                        // 外部变化（如"跟随系统"重置）同步滑条显示；拖动中不回写，避免与手势竞态回跳
-                        LaunchedEffect(prefs.brightness) {
-                            if (!brightnessDragging) sliderBrightness = prefs.brightness ?: 0.5f
-                        }
-                        Slider(
-                            value = sliderBrightness,
-                            onValueChange = { value ->
-                                brightnessDragging = true
-                                sliderBrightness = value
-                                // 拖动即写配置：DataStore 回流后顶层 DisposableEffect 实时作用于窗口
-                                viewModel.updatePrefs { it.copy(brightness = value) }
-                            },
-                            onValueChangeFinished = { brightnessDragging = false },
-                            valueRange = 0.01f..1f,
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .weight(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.25f),
-                            ),
-                        )
-                        Text(
-                            text = "${(sliderBrightness * 100).roundToInt()}%",
-                            color = MaterialTheme.colorScheme.secondary,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        TextButton(onClick = { viewModel.updatePrefs { it.copy(brightness = null) } }) {
-                            Text("跟随系统", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                } else {
-                    // 页码与滑条同一行，砍掉独立页码行
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "${shownPage + 1}/${pageCount.coerceAtLeast(1)}",
-                            color = MaterialTheme.colorScheme.secondary,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        Slider(
-                            value = shownPage.toFloat(),
-                            onValueChange = { value ->
-                                sliderActive = true
-                                sliderPage = value.roundToInt().coerceIn(0, last)
-                            },
-                            onValueChangeFinished = {
-                                sliderActive = false
-                                scope.launch {
-                                    val target = sliderPage.coerceIn(0, last)
-                                    if (upDown) verticalListState.animateScrollToItem(target)
-                                    else pagerState.scrollToPage(target)
-                                }
-                            },
-                            valueRange = 0f..last.toFloat().coerceAtLeast(0f),
-                            modifier = Modifier
-                                .padding(start = 10.dp)
-                                .weight(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.25f),
-                            ),
-                        )
-                    }
+                // —— 第一行：页码滑条（第 N 页 … 进度%）——
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "第 ${shownPage + 1} 页",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Slider(
+                        value = shownPage.toFloat(),
+                        onValueChange = { value ->
+                            sliderActive = true
+                            sliderPage = value.roundToInt().coerceIn(0, last)
+                        },
+                        onValueChangeFinished = {
+                            sliderActive = false
+                            scope.launch {
+                                val target = sliderPage.coerceIn(0, last)
+                                if (upDown) verticalListState.animateScrollToItem(target)
+                                else pagerState.scrollToPage(target)
+                            }
+                        },
+                        valueRange = 0f..last.toFloat().coerceAtLeast(0f),
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp)
+                            .weight(1f),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                        ),
+                    )
+                    Text(
+                        text = "${((shownPage + 1).toFloat() / pageCount.coerceAtLeast(1) * 100).roundToInt()}%",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 }
-                // —— 六个等宽功能按钮：上一章 / 亮度 / 设置 / 添加书签 / 目录 / 下一章 ——
+                // —— 等宽功能按钮：上一章 / 亮度 / 设置 / 书签 /（复制文字）/ 目录 / 下一章 ——
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -887,6 +872,7 @@ private fun ReaderPagerArea(
                     ReaderBarIconButton(
                         icon = Icons.Filled.SkipPrevious,
                         desc = "上一章",
+                        label = "上一章",
                         enabled = prevEnabled,
                         modifier = Modifier.weight(1f),
                         onClick = { prevTarget?.let { turnTo(it) } },
@@ -894,19 +880,22 @@ private fun ReaderPagerArea(
                     ReaderBarIconButton(
                         icon = Icons.Outlined.Brightness6,
                         desc = "亮度",
-                        selected = barMode == "brightness",
+                        label = "亮度",
+                        selected = showBrightness,
                         modifier = Modifier.weight(1f),
-                        onClick = { barMode = if (barMode == "brightness") "page" else "brightness" },
+                        onClick = { showBrightness = !showBrightness },
                     )
                     ReaderBarIconButton(
                         icon = Icons.Outlined.Settings,
                         desc = "阅读设置",
+                        label = "设置",
                         modifier = Modifier.weight(1f),
                         onClick = { showSettings = true },
                     )
                     ReaderBarIconButton(
                         icon = Icons.Outlined.BookmarkAdd,
                         desc = "添加书签",
+                        label = "书签",
                         modifier = Modifier.weight(1f),
                         onClick = { viewModel.addBookmark(currentPage) },
                     )
@@ -914,6 +903,7 @@ private fun ReaderPagerArea(
                         ReaderBarIconButton(
                             icon = Icons.Outlined.ContentCopy,
                             desc = "复制文字",
+                            label = "复制文字",
                             modifier = Modifier.weight(1f),
                             onClick = { showCopyDialog = true },
                         )
@@ -921,12 +911,14 @@ private fun ReaderPagerArea(
                     ReaderBarIconButton(
                         icon = Icons.AutoMirrored.Outlined.ListIcon,
                         desc = "目录",
+                        label = "目录",
                         modifier = Modifier.weight(1f),
                         onClick = onOpenDirectory,
                     )
                     ReaderBarIconButton(
                         icon = Icons.Filled.SkipNext,
                         desc = "下一章",
+                        label = "下一章",
                         enabled = nextTarget != null,
                         modifier = Modifier.weight(1f),
                         onClick = { nextTarget?.let { turnTo(it) } },
@@ -966,6 +958,26 @@ private fun ReaderPagerArea(
             }
         }
 
+        // —— 亮度独立浮动弹层：底部居中、导航栏上方的圆角小卡片；背景透明无变暗，点外部关闭 ——
+        if (showBrightness) {
+            // 透明遮罩：铺满全屏，只接「点外部关闭」，不改变背景明暗
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures { showBrightness = false } },
+            )
+            BrightnessPopoverCard(
+                brightness = prefs.brightness,
+                onBrightness = { value -> viewModel.updatePrefs { it.copy(brightness = value) } },
+                onFollowSystem = { viewModel.updatePrefs { it.copy(brightness = null) } },
+                onDismiss = { showBrightness = false },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(WindowInsets.navigationBars.asPaddingValues())
+                    .padding(start = 14.dp, end = 14.dp, bottom = 112.dp),
+            )
+        }
+
         // —— 阅读设置快捷面板（底部弹层）——
         if (showSettings) {
             ReaderSettingsSheet(
@@ -986,26 +998,131 @@ private fun ReaderPagerArea(
     }
 }
 
-/** 底部工具栏功能按钮：等宽布局 + 白色图标（禁用时降透明度；选中时用主色高亮） */
+/**
+ * 底部工具栏功能按钮：等宽布局，图标 + 小字标签（对齐设计稿 .reader-tool）。
+ * 颜色取色板中性色（onSurfaceVariant）；禁用降透明度；选中用主色高亮。
+ */
 @Composable
 private fun ReaderBarIconButton(
     icon: ImageVector,
     desc: String,
+    label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = modifier) {
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = modifier
+            .heightIn(min = 45.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Icon(
             imageVector = icon,
             contentDescription = desc,
-            tint = when {
-                !enabled -> Color.White.copy(alpha = 0.38f)
-                selected -> MaterialTheme.colorScheme.primary
-                else -> Color.White
-            },
+            tint = tint,
+            modifier = Modifier.size(18.dp),
         )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = label,
+            color = tint,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 亮度浮动弹层卡片（对齐设计稿 .brightness-popover）：
+ * 底部居中的圆角小卡片；头部「亮度」+ 百分比 + 跟随系统 + 关闭，下方滑条。
+ * 拖动即写 prefs（顶层 DisposableEffect 实时作用于窗口亮度）；「跟随系统」置 null。
+ * 卡片本身吞掉点按，避免落到下方透明遮罩被误关闭。
+ */
+@Composable
+private fun BrightnessPopoverCard(
+    brightness: Float?,
+    onBrightness: (Float) -> Unit,
+    onFollowSystem: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var dragging by remember { mutableStateOf(false) }
+    // 跟随系统（null）时滑条显示近似值 50%
+    var sliderValue by remember { mutableFloatStateOf(brightness ?: 0.5f) }
+    // 外部变化（如「跟随系统」重置）同步滑条显示；拖动中不回写，避免与手势竞态回跳
+    LaunchedEffect(brightness) {
+        if (!dragging) sliderValue = brightness ?: 0.5f
+    }
+    Surface(
+        modifier = modifier
+            .widthIn(max = 340.dp)
+            .fillMaxWidth()
+            .pointerInput(Unit) { detectTapGestures { } },
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 10.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 15.dp, end = 15.dp, top = 13.dp, bottom = 15.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "亮度",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "${(sliderValue * 100).roundToInt()}%",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                TextButton(
+                    onClick = onFollowSystem,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("跟随系统", style = MaterialTheme.typography.labelMedium)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "关闭亮度",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Slider(
+                value = sliderValue,
+                onValueChange = { value ->
+                    dragging = true
+                    sliderValue = value
+                    // 拖动即写配置：DataStore 回流后顶层 DisposableEffect 实时作用于窗口
+                    onBrightness(value)
+                },
+                onValueChangeFinished = { dragging = false },
+                valueRange = 0.01f..1f,
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                ),
+            )
+        }
     }
 }
 
@@ -1091,10 +1208,36 @@ private fun ReaderSettingsSheet(
     onUpdate: ((ReaderPrefs) -> ReaderPrefs) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        ReaderSettingsSheetContent(prefs = prefs, onUpdate = onUpdate)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // 面板整体高度约半屏（对齐设计稿 .reader-sheet 的 50dvh，上下限呼应 min 280 / max 520）
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val sheetHeight = (screenHeight * 0.5f).coerceIn(280.dp, 520.dp)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        dragHandle = { SheetGrabber() },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(sheetHeight),
+        ) {
+            ReaderSettingsSheetContent(prefs = prefs, onUpdate = onUpdate, onDismiss = onDismiss)
+        }
     }
+}
+
+/** 面板拖动条（对齐设计稿 .sheet-grabber：36×4 圆角条，色 surfaceContainerHighest） */
+@Composable
+private fun SheetGrabber() {
+    Box(
+        Modifier
+            .padding(top = 10.dp, bottom = 6.dp)
+            .size(width = 36.dp, height = 4.dp)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape),
+    )
 }
 
 /** 弹层分组（与阅读配置管理页同款三组，胶囊即分组标题） */
@@ -1104,9 +1247,6 @@ private enum class ReaderSheetTab(val label: String) {
     FONT("字体"),
 }
 
-/** 弹层分页区高度：容纳最高的字体组；组内偶尔超高时由组内容自滚 */
-private val SheetPagerHeight = 340.dp
-
 /**
  * 设置面板内容（拆出独立于 ModalBottomSheet 的容器以便 UI 测试直挂）：
  * 顶部胶囊 ↔ 横滑分页双向同步；每组内保留原有控件与即时生效行为。
@@ -1115,10 +1255,36 @@ private val SheetPagerHeight = 340.dp
 internal fun ReaderSettingsSheetContent(
     prefs: ReaderPrefs,
     onUpdate: ((ReaderPrefs) -> ReaderPrefs) -> Unit,
+    onDismiss: () -> Unit = {},
 ) {
     val pagerState = rememberPagerState { ReaderSheetTab.entries.size }
     val scope = rememberCoroutineScope()
-    Column(modifier = Modifier.fillMaxWidth()) {
+    // 用 fillMaxHeight + 分页区 weight(1f)：面板高度由容器决定（弹层里是半屏）。
+    // 分页/滚动状态挂在本组合位的 remember 上，改设置项触发重组不会重置位置。
+    Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
+        // —— 面板头：标题「阅读设置」+ 右侧关闭（对齐设计稿 .sheet-head）——
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "阅读设置",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "关闭",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         // —— 顶部胶囊分组：点胶囊换组，与横滑分页双向同步 ——
         Row(
             modifier = Modifier
@@ -1139,7 +1305,7 @@ internal fun ReaderSettingsSheetContent(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(SheetPagerHeight),
+                .weight(1f),
         ) { page ->
             SheetGroupPage {
                 when (ReaderSheetTab.entries[page]) {
@@ -1275,7 +1441,7 @@ private fun SheetFontGroup(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reade
                 onClick = {
                     onUpdate { it.copy(novelFontFamily = family, novelCustomFont = null) }
                 },
-                label = { Text(family.label.removePrefix("系统")) },
+                label = { Text(family.label) },
             )
         }
     }

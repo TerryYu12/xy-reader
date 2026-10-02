@@ -114,7 +114,13 @@ internal enum class AccentColor(val light: Long, val dark: Long) {
     GRAY(0xFF5F6368, 0xFF9AA0A6),   // 版本 / 隐私
 }
 
-/** 按当前明暗主题取对应的点缀色变体 */
+/** 按当前生效主题取对应的点缀色变体（手动模式经 LocalThemeMode 覆盖系统判断） */
 @Composable
-internal fun accentColor(color: AccentColor): Color =
-    if (isSystemInDarkTheme()) Color(color.dark.toInt()) else Color(color.light.toInt())
+internal fun accentColor(color: AccentColor): Color {
+    val dark = when (LocalThemeMode.current) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    }
+    return if (dark) Color(color.dark.toInt()) else Color(color.light.toInt())
+}

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -389,64 +390,45 @@ internal fun BookCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                     )
                 }
-                Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(48.dp)
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)))),
-                    contentAlignment = Alignment.BottomStart,
-                ) { FormatTag(book.format, Modifier.padding(start = 10.dp, bottom = 10.dp)) }
             }
 
+            // 格式角标：封面左下，始终显示（沿用既有 FormatTag 样式）
+            Box(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().height(48.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.42f)))),
+                contentAlignment = Alignment.BottomStart,
+            ) { FormatTag(book.format, Modifier.padding(start = 10.dp, bottom = 10.dp)) }
+
+            // 爱心移到封面右上角（圆形半透明底；保留「收藏/取消收藏」contentDescription）
             Surface(
-                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
                 shape = CircleShape,
                 color = ScrimColor,
             ) {
-                IconButton(onClick = { onToggleFavorite(book) }, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = { onToggleFavorite(book) }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         if (book.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                         contentDescription = if (book.isFavorite) "取消收藏" else "收藏",
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = if (book.isFavorite) MaterialTheme.colorScheme.tertiary else Color.White,
                     )
                 }
             }
-            if (book.totalPages > 0 && book.currentPage > 0) {
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
-                    shape = RoundedCornerShape(50.dp),
-                    color = MaterialTheme.colorScheme.tertiary,
-                    contentColor = MaterialTheme.colorScheme.onTertiary,
-                ) {
-                    Text(
-                        "${book.currentPage.coerceAtMost(book.totalPages)}/${book.totalPages}",
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
+            // 封面右下页码徽标已按稿移除（进度改在封面下方细进度条呈现）
         }
 
         Spacer(Modifier.height(6.dp))
+        // 标题行：书名 + ⋮（保留「更多：书名」contentDescription，测试依赖）
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    book.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    coverSubtitle(book),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                book.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Box {
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Outlined.MoreVert, contentDescription = "更多：${book.title}")
@@ -485,6 +467,31 @@ internal fun BookCard(
                         onClick = { menuOpen = false; confirmDelete = true },
                     )
                 }
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        // 第二行：分组/格式 · P% 已读（对应设计稿 .book-meta）
+        Text(
+            bookMeta(book, groups),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // 细进度条：仅进度>0 时显示（对应设计稿 .book-progress）
+        val progress = bookProgress(book)
+        if (progress > 0) {
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.fillMaxWidth().height(3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)),
+            ) {
+                Box(
+                    Modifier.fillMaxHeight()
+                        .fillMaxWidth(progress / 100f)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
             }
         }
     }
@@ -626,12 +633,19 @@ private fun reorderBookList(books: List<BookEntity>, draggedId: Long, targetId: 
     return result
 }
 
-private fun coverSubtitle(book: BookEntity): String {
+/** 卡片副标题：分组 · 格式 · P% 已读 / 未读（对应设计稿 .book-meta） */
+private fun bookMeta(book: BookEntity, groups: List<BookGroupEntity>): String {
     val format = runCatching { BookFormat.valueOf(book.format).displayName }.getOrDefault("未知")
-    return if (book.totalPages > 0 && book.currentPage > 0) {
-        "$format · ${book.currentPage.coerceAtMost(book.totalPages)}/${book.totalPages}"
-    } else format
+    val group = groups.firstOrNull { it.id == book.groupId }?.name ?: "未分组"
+    val progress = bookProgress(book)
+    return if (progress > 0) "$group · $format · $progress% 已读" else "$group · $format · 未读"
 }
+
+/** 阅读进度百分比（无总页数或未读时按 0 处理） */
+private fun bookProgress(book: BookEntity): Int =
+    if (book.totalPages > 0 && book.currentPage > 0) {
+        (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
+    } else 0
 
 @Composable
 private fun GroupPickRow(label: String, selected: Boolean, onClick: () -> Unit) {
