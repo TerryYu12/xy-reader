@@ -542,7 +542,7 @@ private fun ContinueReadingCard(book: BookEntity, onContinue: () -> Unit) {
                 }
             }
             Spacer(Modifier.width(14.dp))
-            // 小封面：无封面时降级为底色 + 首字（演示稿的倾斜艺术封面属演示素材）
+            // 小封面：无封面时用新主题的默认封面（渐变艺术封面）；有真实封面时仍走 AsyncImage
             Box(
                 modifier = Modifier.size(width = 84.dp, height = 116.dp)
                     .rotate(4f)
@@ -550,20 +550,15 @@ private fun ContinueReadingCard(book: BookEntity, onContinue: () -> Unit) {
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
+                if (book.coverPath == null) {
+                    DefaultBookCover(book = book, modifier = Modifier.fillMaxSize(), compact = true)
+                }
                 AsyncImage(
                     model = book.coverPath?.let(::File),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
-                if (book.coverPath == null) {
-                    Text(
-                        book.title.firstOrNull()?.toString() ?: "书",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                    )
-                }
             }
         }
     }

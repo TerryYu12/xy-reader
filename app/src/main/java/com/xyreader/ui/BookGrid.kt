@@ -366,31 +366,24 @@ internal fun BookCard(
             modifier = Modifier.fillMaxWidth().aspectRatio(0.72f)
                 .shadow(elevation = 2.dp, shape = corner)
                 .clip(corner)
-                .background(
-                    if (book.coverPath == null) {
-                        Brush.verticalGradient(
-                            listOf(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surfaceContainer),
-                        )
-                    } else SolidColor(MaterialTheme.colorScheme.surfaceVariant),
-                )
+                .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant))
                 .clickable(onClick = { onOpenBook(book.id) }),
         ) {
+            // 默认封面（无封面书）：新主题的渐变艺术封面；有真实封面时仍走 AsyncImage
+            if (book.coverPath == null) {
+                DefaultBookCover(
+                    book = book,
+                    modifier = Modifier.fillMaxSize(),
+                    // 左下格式角标由卡片统一叠加（真实封面也显示），此处不再重复
+                    showFormatBadge = false,
+                )
+            }
             AsyncImage(
                 model = book.coverPath?.let(::File),
                 contentDescription = book.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
-            if (book.coverPath == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = book.title.firstOrNull()?.toString() ?: "书",
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                    )
-                }
-            }
 
             // 格式角标：封面左下，始终显示（沿用既有 FormatTag 样式）
             Box(

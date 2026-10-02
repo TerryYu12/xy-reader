@@ -1,27 +1,29 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,8 +32,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,74 +40,114 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.core.BookGroupEntity
 import kotlinx.coroutines.launch
 
 /**
- * 书架管理页：自定义分组的增删改。
+ * 书架管理页（设计源 index.html groupsView）：自定义分组的增删改。
+ * 子页头（返回圆钮 + 标题 + 副标题）→ settings-card 里的 setting-row（强调色 folder 图标块
+ * + 分组名 + 「N 本书」副标题 + 改名 / 删除）→ 卡下「新建分组」软按钮；空态为卡内文案。
  * 删除分组只把组内书移回未分组，不删任何书。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupManageScreen(onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
     val scope = rememberCoroutineScope()
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+    val books by repo.books.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var showAdd by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<BookGroupEntity?>(null) }
     var deleting by remember { mutableStateOf<BookGroupEntity?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("书架管理", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+    Scaffold { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+        ) {
+            SubpageHead(title = "书架管理", subtitle = "整理书籍分组", onBack = onBack)
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(19.dp),
+                    ),
+                shape = RoundedCornerShape(19.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column {
+                    if (groups.isEmpty()) {
+                        Text(
+                            "还没有自定义分组。",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 40.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    } else {
+                        groups.forEachIndexed { index, group ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    thickness = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                            }
+                            GroupRow(
+                                group = group,
+                                bookCount = books.count { it.groupId == group.id },
+                                onRename = { renaming = group },
+                                onDelete = { deleting = group },
+                            )
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAdd = true },
-                shape = RoundedCornerShape(20.dp),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加分组")
+                }
             }
-        },
-    ) { padding ->
-        if (groups.isEmpty()) {
-            EmptyState(
-                icon = Icons.Outlined.FolderOpen,
-                title = "还没有分组",
-                subtitle = "点右下角 + 创建分组，然后在封面上长按即可把书移进来",
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+
+            Spacer(Modifier.height(13.dp))
+            // 「新建分组」软按钮（对应设计 .button.soft）
+            Surface(
+                onClick = { showAdd = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
             ) {
-                items(groups, key = { it.id }) { group ->
-                    GroupRow(
-                        group = group,
-                        onRename = { renaming = group },
-                        onDelete = { deleting = group },
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "新建分组",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
+
+            Spacer(Modifier.height(28.dp))
         }
     }
 
@@ -195,61 +235,112 @@ fun GroupManageScreen(onBack: () -> Unit) {
     }
 }
 
-/** 分组行卡片：紫色图标块 + 名称 + 重命名 / 删除 */
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他子代理页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(title: String, subtitle: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 分组行（对应设计 groupsView 的 .setting-row）：紫色 folder 图标块 + 名称 + 「N 本书」 + 改名 / 删除 */
 @Composable
 private fun GroupRow(
     group: BookGroupEntity,
+    bookCount: Int,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val purpleTint = accentColor(AccentColor.PURPLE)
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Surface(
+            modifier = Modifier.size(38.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = purpleTint.copy(alpha = 0.12f),
         ) {
-            Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
-                color = purpleTint.copy(alpha = 0.12f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Outlined.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = purpleTint,
-                    )
-                }
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Outlined.FolderOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = purpleTint,
+                )
             }
-            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
             Text(
                 group.name,
-                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
             )
-            IconButton(onClick = onRename) {
-                Icon(
-                    Icons.Outlined.Edit,
-                    contentDescription = "重命名",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Outlined.DeleteOutline,
-                    contentDescription = "删除分组",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "$bookCount 本书",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onRename) {
+            Text(
+                "改名",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Outlined.DeleteOutline,
+                contentDescription = "删除分组",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

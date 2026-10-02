@@ -10,18 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,8 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.core.BookEntity
@@ -38,7 +28,6 @@ import com.xyreader.core.SortOption
 import kotlinx.coroutines.launch
 
 /** 自定义分组书列表；长按拖到上方分类可移组，拖到删除区会先请求确认。 */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupBooksScreen(groupId: Long, onBack: () -> Unit, onOpenBook: (Long) -> Unit) {
     val repo = rememberLibraryRepository()
@@ -63,19 +52,14 @@ fun GroupBooksScreen(groupId: Long, onBack: () -> Unit, onOpenBook: (Long) -> Un
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = { Text(groupName, fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
-        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            ShelfSubpageHead(
+                title = groupName,
+                subtitle = "${books.size} 本书",
+                onBack = onBack,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+            )
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp),

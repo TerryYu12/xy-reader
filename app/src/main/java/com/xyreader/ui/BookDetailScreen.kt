@@ -1,5 +1,6 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,13 +13,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,10 +29,8 @@ import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -41,8 +38,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,21 +50,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.Chapter
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * 书籍详情页：点击书本先到这里（目录先行），可翻目录选章、继续阅读、从头开始或删除。
@@ -78,7 +75,6 @@ import java.io.File
  * （当前章节高亮，点击章节直达该章起始页）；底部悬浮胶囊操作栏。
  * 远程书的目录不在此页加载（避免网络 IO），进入阅读器后查看。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookDetailScreen(
     bookId: Long,
@@ -104,31 +100,11 @@ fun BookDetailScreen(
         viewModel.events.collect { message -> snackbar.showSnackbar(message) }
     }
 
+    // 分组名用于子页头副标题「格式 · 分组」
+    val repo = rememberLibraryRepository()
+    val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    val loaded = book
-                    if (loaded != null) {
-                        IconButton(onClick = viewModel::toggleFavorite) {
-                            Icon(
-                                if (loaded.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = if (loaded.isFavorite) "取消收藏" else "收藏",
-                                tint = if (loaded.isFavorite) MaterialTheme.colorScheme.tertiary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val current = book
@@ -147,12 +123,25 @@ fun BookDetailScreen(
             return@Scaffold
         }
 
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 128.dp),
-            ) {
-                item("info") { BookInfoSection(current) }
+        val groupName = groups.firstOrNull { it.id == current.groupId }?.name ?: "未分组"
+        val formatName = runCatching { BookFormat.valueOf(current.format).displayName }.getOrDefault("未知")
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
+        ) {
+                item("head") {
+                    DetailSubpageHead(subtitle = "$formatName · $groupName", onBack = onBack)
+                }
+                item("info") {
+                    BookInfoSection(
+                        book = current,
+                        onContinue = onContinue,
+                        onStartFromBeginning = onStartFromBeginning,
+                        onToggleFavorite = viewModel::toggleFavorite,
+                        onDelete = { confirmDelete = true },
+                    )
+                }
                 item("stats") { StatsRow(current) }
                 item("toc_header") { TocHeader(toc) }
 
@@ -183,18 +172,6 @@ fun BookDetailScreen(
                     BookDetailViewModel.Toc.Hidden -> item("toc_hidden") { TocCaption("远程书籍 · 进入阅读器后查看目录") }
                 }
             }
-
-            BottomActionPill(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 16.dp),
-                hasProgress = current.currentPage > 0,
-                onContinue = onContinue,
-                onStartFromBeginning = onStartFromBeginning,
-                onDelete = { confirmDelete = true },
-            )
-        }
     }
 
     val target = book
@@ -214,66 +191,200 @@ fun BookDetailScreen(
     }
 }
 
-/** 封面 + 书名 + 格式/大小/页数一行元信息 */
+/** 子页头（对应设计源 .subpage-head）：圆角返回钮 + 「书籍详情」+ 副标题「格式 · 分组」 */
 @Composable
-private fun BookInfoSection(book: BookEntity) {
+private fun DetailSubpageHead(subtitle: String, onBack: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val corner = RoundedCornerShape(20.dp)
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "书籍详情",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** 详情主体（对应设计源 .detail-cover + .detail-main）：大封面 + 书名 + 统计胶囊行 + 操作按钮 */
+@Composable
+private fun BookInfoSection(
+    book: BookEntity,
+    onContinue: () -> Unit,
+    onStartFromBeginning: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val corner = RoundedCornerShape(19.dp)
+    val progress = if (book.totalPages > 0 && book.currentPage > 0) {
+        (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
+    } else 0
+    val formatName = runCatching { BookFormat.valueOf(book.format).displayName }.getOrDefault("未知")
+
+    Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp)) {
+        // 大封面：无封面走新主题的默认封面（渐变艺术封面）
         Box(
             modifier = Modifier
-                .width(112.dp)
+                .width(148.dp)
                 .aspectRatio(0.72f)
-                .shadow(elevation = 2.dp, shape = corner)
+                .shadow(elevation = 3.dp, shape = corner)
                 .clip(corner)
-                .background(
-                    if (book.coverPath == null) {
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.surfaceContainerHigh,
-                                MaterialTheme.colorScheme.surfaceContainer,
-                            ),
-                        )
-                    } else {
-                        SolidColor(MaterialTheme.colorScheme.surfaceVariant)
-                    },
-                ),
+                .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant)),
         ) {
+            if (book.coverPath == null) {
+                DefaultBookCover(book = book, modifier = Modifier.fillMaxSize(), compact = true)
+            }
             AsyncImage(
                 model = book.coverPath?.let(::File),
                 contentDescription = book.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            if (book.coverPath == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = book.title.firstOrNull()?.toString() ?: "书",
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                    )
-                }
-            }
         }
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                book.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+        Spacer(Modifier.height(16.dp))
+        Text(
+            book.title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            bookMetaLine(book),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(16.dp))
+        // 统计胶囊行（对应 .stat-pill）：进度 / 页数 / 格式
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatPill(if (progress > 0) "$progress% 已读" else "尚未开始")
+            StatPill(if (book.totalPages > 0) "${book.totalPages} 页" else "页数未知")
+            StatPill(formatName)
+        }
+        Spacer(Modifier.height(18.dp))
+        // 主操作：继续阅读 / 开始阅读（主色胶囊，对应 .button.primary）
+        DetailButton(
+            label = if (progress > 0) "继续阅读" else "开始阅读",
+            icon = Icons.Filled.PlayArrow,
+            primary = true,
+            onClick = onContinue,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(9.dp))
+        // 次级操作：从头开始（重置进度到第 1 页）/ 收藏 / 删除（保留应用既有入口，对应 .button）
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            DetailButton(
+                label = "从头开始",
+                icon = Icons.Outlined.Replay,
+                onClick = onStartFromBeginning,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.height(8.dp))
+            DetailButton(
+                label = if (book.isFavorite) "已收藏" else "收藏",
+                icon = if (book.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                onClick = onToggleFavorite,
+                modifier = Modifier.weight(1f),
+            )
+            DetailButton(
+                label = "删除",
+                icon = Icons.Outlined.DeleteOutline,
+                danger = true,
+                onClick = onDelete,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** 统计胶囊（对应设计源 .stat-pill） */
+@Composable
+private fun StatPill(text: String) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 详情操作按钮（对应设计源 .button / .button.primary / .button.danger） */
+@Composable
+private fun DetailButton(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    danger: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(42.dp),
+        shape = if (primary) RoundedCornerShape(999.dp) else RoundedCornerShape(13.dp),
+        color = when {
+            primary -> MaterialTheme.colorScheme.primary
+            danger -> Color.Transparent
+            else -> MaterialTheme.colorScheme.surfaceContainer
+        },
+        contentColor = when {
+            primary -> MaterialTheme.colorScheme.onPrimary
+            danger -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.onSurface
+        },
+        border = if (primary || danger) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
             Text(
-                bookMetaLine(book),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -339,7 +450,7 @@ private fun TocHeader(toc: BookDetailViewModel.Toc) {
     }
 }
 
-/** 单个章节行：首行/末行带圆角拼成整块卡片；当前章节高亮，读过章节文字变淡 */
+/** 单个章节行（对应设计源 .chapter-row）：左「第 N 章　名称」、右小字；当前章高亮并标注「上次读到」 */
 @Composable
 private fun ChapterRow(
     chapter: Chapter,
@@ -378,7 +489,7 @@ private fun ChapterRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                chapter.title,
+                "第 ${index + 1} 章　${chapter.title}",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
@@ -392,9 +503,10 @@ private fun ChapterRow(
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                "第 ${chapter.startPage + 1} 页",
+                if (isCurrent) "上次读到" else "打开章节",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
         }
     }
@@ -425,66 +537,6 @@ private fun TocCaption(text: String, loading: Boolean = false) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-/** 底部悬浮操作胶囊：从头开始 / 继续阅读（主按钮）/ 删除 */
-@Composable
-private fun BottomActionPill(
-    modifier: Modifier = Modifier,
-    hasProgress: Boolean,
-    onContinue: () -> Unit,
-    onStartFromBeginning: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(32.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = onStartFromBeginning,
-                modifier = Modifier.size(44.dp).testTag("start_from_beginning"),
-            ) {
-                Icon(
-                    Icons.Outlined.Replay,
-                    contentDescription = "从头开始",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Surface(
-                onClick = onContinue,
-                modifier = Modifier.size(52.dp).testTag("continue_reading"),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = if (hasProgress) "继续阅读" else "开始阅读",
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(44.dp).testTag("delete_book"),
-            ) {
-                Icon(
-                    Icons.Outlined.DeleteOutline,
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
     }
 }
 

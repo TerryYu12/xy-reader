@@ -1,5 +1,7 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Coffee
 import androidx.compose.material.icons.outlined.CollectionsBookmark
@@ -25,18 +28,14 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Label
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,17 +46,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xyreader.BuildConfig
 import kotlinx.coroutines.launch
 
 /**
- * 设置页（对应 MH-ARK 设置页，Google 设置风格）：
- * 顶栏返回 +「设置」；overline 风格分组标题（仓库管理 / 漫画管理 / 其他）+
- * 大圆角卡片行（彩色图标块 + 标题 + 副标题/尾注，每行图标各有专属色相）。
- * 开发中条目以 Snackbar 提示；本地/远程仓库管理与 Google Drive 为可点击行，
- * 跳转对应管理页。
+ * 设置页（设计源 index.html settingsView）：
+ * 子页头（圆角描边返回钮 + 标题「设置」 + 副标题）→ 三个分组（仓库管理 / 漫画管理 / 其他），
+ * 每组 = 小标题 + settings-card 容器；行样式 setting-row：强调色图标块（底色 = 强调色 13%）
+ * + 标题/副标题 + 尾部（chevron / beta 徽标 / 版本号）。
+ *
+ * 强调色色相严格按设计色表：
+ * 本地仓库=primary、远程=green、Drive=coral(tertiary)、书架=#c58af9(purple)、
+ * 标签=gold、阅读配置=#78d9ec(cyan)、版本/隐私=quiet(gray)、支持作者=gold。
+ * 开发中条目以 Snackbar 提示；各处入口跳转保持不变。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -73,19 +76,6 @@ fun SettingsScreen(
     val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("设置", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(
@@ -95,48 +85,58 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            SectionLabel("仓库管理", Modifier.padding(top = 12.dp, bottom = 10.dp))
+            SubpageHead(
+                title = "设置",
+                subtitle = "XY-READER 的阅读与书库选项",
+                onBack = onBack,
+            )
+
+            GroupLabel("仓库管理")
             SettingsCard {
                 SettingRow(
                     icon = Icons.Outlined.FolderOpen,
                     title = "本地仓库管理",
-                    iconTint = accentColor(AccentColor.BLUE),
+                    subtitle = "添加本机文件夹并扫描书籍",
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    showChevron = true,
                     onClick = onOpenRepos,
                 )
                 RowDivider()
                 SettingRow(
                     icon = Icons.Outlined.Cloud,
                     title = "远程仓库管理",
-                    subtitle = "支持 ZIP,7Z,TAR,RAR,PDF 流式阅读",
+                    subtitle = "WebDAV · ZIP / 7Z / TAR / RAR / PDF 流式阅读",
                     iconTint = accentColor(AccentColor.GREEN),
-                    trailing = { BetaTag() },
+                    tailBeta = true,
                     onClick = onOpenRemoteRepos,
                 )
                 RowDivider()
                 SettingRow(
                     icon = Icons.Outlined.Cloud,
                     title = "Google Drive",
-                    subtitle = "OAuth 授权，支持 ZIP,7Z,TAR,RAR,PDF 流式阅读",
+                    subtitle = "OAuth 授权与云端扫描",
                     iconTint = MaterialTheme.colorScheme.tertiary,
-                    trailing = { BetaTag() },
+                    tailBeta = true,
                     onClick = onOpenGdrive,
                 )
             }
 
-            SectionLabel("漫画管理", Modifier.padding(top = 24.dp, bottom = 10.dp))
+            GroupLabel("漫画管理")
             SettingsCard {
                 SettingRow(
                     icon = Icons.Outlined.CollectionsBookmark,
                     title = "书架管理",
-                    subtitle = "自定义分组，分类整理漫画",
+                    subtitle = "自定义分组，分类整理书籍",
                     iconTint = accentColor(AccentColor.PURPLE),
+                    showChevron = true,
                     onClick = onOpenGroups,
                 )
                 RowDivider()
                 SettingRow(
                     icon = Icons.Outlined.Label,
                     title = "标签管理",
-                    iconTint = accentColor(AccentColor.ORANGE),
+                    subtitle = "开发中",
+                    iconTint = accentColor(AccentColor.GOLD),
                     onClick = { scope.launch { snackbar.showSnackbar("标签管理开发中") } },
                 )
                 RowDivider()
@@ -145,30 +145,28 @@ fun SettingsScreen(
                     title = "阅读配置管理",
                     subtitle = "翻页模式 / 漫画方向 / 屏幕方向",
                     iconTint = accentColor(AccentColor.CYAN),
+                    showChevron = true,
                     onClick = onOpenReaderConfig,
                 )
             }
 
-            SectionLabel("其他", Modifier.padding(top = 24.dp, bottom = 10.dp))
+            GroupLabel("其他")
             SettingsCard {
                 SettingRow(
                     icon = Icons.Outlined.Info,
                     title = "版本",
+                    subtitle = "随安装版本变化",
                     iconTint = accentColor(AccentColor.GRAY),
-                    trailing = {
-                        Text(
-                            BuildConfig.VERSION_NAME,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
+                    tailText = BuildConfig.VERSION_NAME,
                     onClick = null,
                 )
                 RowDivider()
                 SettingRow(
                     icon = Icons.Outlined.PrivacyTip,
                     title = "隐私政策",
+                    subtitle = "查看应用的数据处理说明",
                     iconTint = accentColor(AccentColor.GRAY),
+                    showChevron = true,
                     onClick = onOpenPrivacy,
                 )
                 RowDivider()
@@ -177,6 +175,7 @@ fun SettingsScreen(
                     title = "支持作者",
                     subtitle = "请作者喝杯咖啡",
                     iconTint = accentColor(AccentColor.GOLD),
+                    showChevron = true,
                     onClick = onOpenSupport,
                 )
             }
@@ -186,57 +185,130 @@ fun SettingsScreen(
     }
 }
 
-/** 圆角分组卡片：一组设置行收纳在同一张卡里（24dp 大圆角 + 留白分层，无描边） */
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他子代理页面中的同名共用组件冲突（未改 Common.kt）。
+ */
 @Composable
-private fun SettingsCard(content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(modifier = Modifier.padding(vertical = 6.dp), content = { content() })
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
-/** 卡片内两行之间的细分隔线（与文字列左对齐缩进） */
+/** 分组小标题（对应设计 .settings-label）：quiet 色小字 + 宽字距 + 加重 */
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 9.dp),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.2.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** 圆角分组卡片（对应设计 .settings-card）：19dp 大圆角 + 1dp 描边 + surface 底 */
+@Composable
+private fun SettingsCard(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(19.dp),
+            ),
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(content = { content() })
+    }
+}
+
+/** 卡片内两行之间的细分隔线（对应设计 setting-row 的 border-bottom，全宽） */
 @Composable
 private fun RowDivider() {
     HorizontalDivider(
-        modifier = Modifier.padding(start = 68.dp, end = 14.dp),
-        thickness = 0.5.dp,
+        thickness = 1.dp,
         color = MaterialTheme.colorScheme.outlineVariant,
     )
 }
 
-/** 单个设置行：42dp 彩色图标块 + 标题（+副标题）+ 尾部内容，行高 ≥60dp */
+/**
+ * 单个设置行（对应设计 .setting-row）：38dp 强调色图标块（底色 = 强调色 13%，
+ * master 指示③：底色与强调色同一色相）+ 标题/副标题 + 尾部，最小高度 64dp。
+ */
 @Composable
 private fun SettingRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
-    trailing: (@Composable () -> Unit)? = null,
     iconTint: Color = MaterialTheme.colorScheme.primary,
+    showChevron: Boolean = false,
+    tailBeta: Boolean = false,
+    tailText: String? = null,
     onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 60.dp)
+            .heightIn(min = 64.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Surface(
-            modifier = Modifier.size(42.dp),
-            shape = RoundedCornerShape(13.dp),
+            modifier = Modifier.size(38.dp),
+            shape = RoundedCornerShape(12.dp),
             color = iconTint.copy(alpha = 0.12f),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                     tint = iconTint,
                 )
             }
@@ -245,6 +317,7 @@ private fun SettingRow(
             Text(
                 title,
                 style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (subtitle != null) {
@@ -258,11 +331,24 @@ private fun SettingRow(
                 )
             }
         }
-        trailing?.invoke()
+        when {
+            tailBeta -> BetaTag()
+            tailText != null -> Text(
+                tailText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            showChevron -> Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
-/** 远程仓库行标题旁的「beta」小标签（功能已可用，处于测试阶段） */
+/** 远程仓库 / Drive 行尾的「beta」小徽标（对应设计 .beta，coral 底） */
 @Composable
 private fun BetaTag() {
     Surface(
@@ -274,6 +360,7 @@ private fun BetaTag() {
             "beta",
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.tertiary,
         )
     }

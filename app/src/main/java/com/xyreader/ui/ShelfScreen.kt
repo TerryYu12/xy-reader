@@ -1,5 +1,6 @@
 package com.xyreader.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,20 +16,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Bookmarks
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,8 +43,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,8 +56,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.core.BookEntity
+import com.xyreader.core.BookGroupEntity
 import com.xyreader.core.BookmarkEntity
 import com.xyreader.core.LibraryRepository
 import com.xyreader.core.QuickRead
@@ -63,11 +68,15 @@ import com.xyreader.core.SortOption
 import kotlinx.coroutines.launch
 
 /**
- * 书架页（对应 MH-ARK 书架 tab，Google 相册集合页式排版）：
- * 大标题「书架」+ 右上添加按钮 → 分组标题「我的书架」→ 2x2 入口卡片
- * （全部 / 收藏 / 历史 / 书签，各带数量与专属色相图标块）→ 节标题「分组」+
- * 横向分组 chips（点击进分组书列表，行尾 + 进分组管理；无分组时整行隐藏）；
- * 右下角「开始阅读」菜单（播放键 + 四选项悬浮胶囊，导入入口保持在右上角 +）。
+ * 书架页（按 Codex 设计稿 `shelfView()` 落地）：
+ * `.page-head`（eyebrow「YOUR COLLECTION」+ 大标题「书架」+ 说明行，右侧主色「添加仓库」胶囊——
+ * 复用既有扫描入口）→ 三张统计卡（书库 / 正在读 / 收藏）→ `.section-head`「我的书架」→
+ * 2×2 `.shelf-tile` 入口磁贴（全部 / 收藏 / 历史 / 书签，各带专属强调色图标块与真实计数）→
+ * 「分组」区（`.group-pill` 行 + 「管理分组」胶囊）→「最近阅读」区（最近 3 本，直接复用 BookGrid 书卡）；
+ * 右下角保留既有「开始阅读」悬浮菜单。
+ *
+ * 整页用 [LazyVerticalGrid]（2 列）承载：标题/统计/分组等横跨整行（[GridItemSpan] 全宽），
+ * 磁贴与最近阅读书卡各占一格，避免在 `verticalScroll` 里嵌套懒加载网格。
  */
 @Composable
 fun ShelfScreen(
@@ -85,11 +94,25 @@ fun ShelfScreen(
         scope.launch { snackbar.showSnackbar("新增 ${report.added} 本") }
     }
 
-    // 入口卡片数量统计
+    // 真实数据源：全部书籍 / 书签 / 自定义分组
     val allBooks by repo.books.collectAsStateWithLifecycle(initialValue = emptyList())
     val bookmarks by repo.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
-    // 自定义分组（chips 行）
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // 计数（真实数据；历史 = 有过阅读记录的书）
+    val favoriteCount = allBooks.count { it.isFavorite }
+    val readingCount = allBooks.count { it.lastReadAt != null }
+    val recentBooks = remember(allBooks) {
+        allBooks.filter { it.lastReadAt != null }
+            .sortedByDescending { it.lastReadAt ?: 0L }
+            .take(3)
+    }
+
+    val onToggleFavorite: (BookEntity) -> Unit = { book -> scope.launch { repo.toggleFavorite(book.id) } }
+    val onDeleteBook: (BookEntity) -> Unit = { book -> scope.launch { repo.deleteBook(book.id) } }
+    val onMoveToGroup: (BookEntity, Long?) -> Unit = { book, groupId ->
+        scope.launch { repo.moveBookToGroup(book.id, groupId) }
+    }
 
     // —— 右下角「开始阅读」菜单（书架页无分类筛选，四项均作用于全库）——
     var readMenuOpen by remember { mutableStateOf(false) }
@@ -114,135 +137,116 @@ fun ShelfScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            // 大标题行 + 右上添加按钮（排版与首页标题区一致：24dp 边距）
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    "书架",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                if (scan.isScanning) {
-                    ScanningCaption(text = "扫描中")
-                } else {
-                    IconButton(onClick = scan::launch) {
-                        Icon(
-                            Icons.Outlined.Add,
-                            contentDescription = "添加仓库",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
+                // —— 页头：eyebrow + 大标题 + 说明行 + 主色添加仓库按钮 ——
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ShelfPageHead(scan)
                 }
-            }
-
-            SectionLabel("我的书架", Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
-
-            // 2x2 入口卡片：图标块按各卡专属色相着色（全部=主色 收藏=珊瑚 历史=绿 书签=金）
-            val greenTint = accentColor(AccentColor.GREEN)
-            val goldTint = accentColor(AccentColor.GOLD)
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                // —— 统计卡行：书库 / 正在读 / 收藏 ——
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ShelfSummaryRow(
+                        total = allBooks.size,
+                        reading = readingCount,
+                        favorite = favoriteCount,
+                    )
+                }
+                // —— 我的书架：2×2 入口磁贴 ——
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ShelfSectionHead(
+                        title = "我的书架",
+                        subtitle = "按内容类型快速打开。",
+                        modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
+                    )
+                }
+                item {
                     ShelfEntryCard(
-                        modifier = Modifier.weight(1f),
                         icon = Icons.Outlined.FolderOpen,
                         title = "全部",
                         count = allBooks.size,
+                        countSuffix = "项",
                         onClick = { onOpenSection(ShelfSection.ALL) },
                     )
+                }
+                item {
                     ShelfEntryCard(
-                        modifier = Modifier.weight(1f),
                         icon = Icons.Outlined.FavoriteBorder,
                         title = "收藏",
-                        count = allBooks.count { it.isFavorite },
+                        count = favoriteCount,
+                        countSuffix = "项",
                         iconTint = MaterialTheme.colorScheme.tertiary,
                         onClick = { onOpenSection(ShelfSection.FAVORITE) },
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                item {
                     ShelfEntryCard(
-                        modifier = Modifier.weight(1f),
                         icon = Icons.Outlined.History,
                         title = "历史",
-                        count = allBooks.count { it.lastReadAt != null },
-                        iconTint = greenTint,
+                        count = readingCount,
+                        countSuffix = "项",
+                        iconTint = accentColor(AccentColor.GREEN),
                         onClick = { onOpenSection(ShelfSection.HISTORY) },
                     )
+                }
+                item {
                     ShelfEntryCard(
-                        modifier = Modifier.weight(1f),
                         icon = Icons.Outlined.Bookmarks,
                         title = "书签",
                         count = bookmarks.size,
-                        iconTint = goldTint,
+                        countSuffix = "项",
+                        iconTint = accentColor(AccentColor.GOLD),
                         onClick = onOpenBookmarks,
+                    )
+                }
+
+                // —— 分组区（无分组时整区隐藏）——
+                if (groups.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        ShelfSectionHead(
+                            title = "分组",
+                            subtitle = "自定义整理方式",
+                            action = "管理",
+                            onAction = onOpenGroupManage,
+                            modifier = Modifier.padding(top = 20.dp),
+                        )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        ShelfGroupPills(
+                            groups = groups,
+                            countOf = { group -> allBooks.count { it.groupId == group.id } },
+                            onOpenGroup = onOpenGroup,
+                            onOpenGroupManage = onOpenGroupManage,
+                        )
+                    }
+                }
+
+                // —— 最近阅读（进度 > 0 的书按最近阅读序取 3）——
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ShelfSectionHead(
+                        title = "最近阅读",
+                        subtitle = "继续上一次打开的书。",
+                        action = "继续阅读",
+                        onAction = { recentBooks.firstOrNull()?.let { onOpenReader(it.id) } },
+                        modifier = Modifier.padding(top = 20.dp),
+                    )
+                }
+                items(recentBooks, key = { it.id }) { book ->
+                    BookCard(
+                        book = book,
+                        groups = groups,
+                        onOpenBook = onOpenBook,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteBook = onDeleteBook,
+                        onMoveToGroup = { groupId -> onMoveToGroup(book, groupId) },
                     )
                 }
             }
 
-            // 节标题「分组」+ 横向分组 chips：点击进分组书列表，行尾 + 进分组管理；无分组时整行隐藏
-            if (groups.isNotEmpty()) {
-                SectionLabel("分组", Modifier.padding(start = 16.dp, top = 20.dp, bottom = 10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    groups.forEach { group ->
-                        Surface(
-                            onClick = { onOpenGroup(group.id) },
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    Icons.Outlined.FolderOpen,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    group.name,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
-                    // 行尾 + → 分组管理页（与分组 chip 同款底色）
-                    Surface(
-                        onClick = onOpenGroupManage,
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ) {
-                        Icon(
-                            Icons.Outlined.Add,
-                            contentDescription = "管理分组",
-                            modifier = Modifier.padding(9.dp).size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(88.dp))
-        }
-            // —— 右下角「开始阅读」：播放键 + 悬浮胶囊菜单（导入入口在右上角 +）——
             QuickReadMenuOverlay(
                 open = readMenuOpen,
                 onToggle = { readMenuOpen = !readMenuOpen },
@@ -253,7 +257,234 @@ fun ShelfScreen(
     }
 }
 
-/** 书架入口卡片：图标、标题和数量按字体大小自然增高。 */
+/** `.page-head`：左侧 eyebrow + 大标题 + 说明行，右侧主色「添加仓库」胶囊（复用既有扫描入口）。 */
+@Composable
+private fun ShelfPageHead(scan: RepoScanHandle) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "YOUR COLLECTION",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.4.sp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "书架",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "收藏、历史记录和书签都在这里。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        if (scan.isScanning) {
+            ScanningCaption(text = "扫描中")
+        } else {
+            Surface(
+                onClick = scan::launch,
+                shape = RoundedCornerShape(13.dp),
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Text("添加仓库", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+/** `.summary-row`：书库 / 正在读 / 收藏 三张统计卡。 */
+@Composable
+private fun ShelfSummaryRow(total: Int, reading: Int, favorite: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SummaryCard("书库", total, Modifier.weight(1f))
+        SummaryCard("正在读", reading, Modifier.weight(1f))
+        SummaryCard("收藏", favorite, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SummaryCard(label: String, value: Int, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(15.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(5.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    "$value",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    "本",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * `.section-head`：左标题 + 副标题，右侧可选文本钮（带 chevron）。
+ * 无 action 时右侧留空。
+ */
+@Composable
+private fun ShelfSectionHead(
+    title: String,
+    subtitle: String? = null,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (subtitle != null) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (action != null && onAction != null) {
+            Spacer(Modifier.width(12.dp))
+            Surface(
+                onClick = onAction,
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(action, style = MaterialTheme.typography.labelLarge)
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+/** `.group-list`：分组胶囊（folder + 组名 + 计数）+ 行尾「管理分组」描边胶囊。 */
+@Composable
+private fun ShelfGroupPills(
+    groups: List<BookGroupEntity>,
+    countOf: (BookGroupEntity) -> Int,
+    onOpenGroup: (Long) -> Unit,
+    onOpenGroupManage: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        groups.forEach { group ->
+            GroupPill(
+                label = group.name,
+                count = countOf(group),
+                leadingIcon = Icons.Outlined.FolderOpen,
+                onClick = { onOpenGroup(group.id) },
+            )
+        }
+        GroupPill(
+            label = "管理分组",
+            count = null,
+            leadingIcon = Icons.Outlined.Add,
+            onClick = onOpenGroupManage,
+        )
+    }
+}
+
+@Composable
+private fun GroupPill(
+    label: String,
+    count: Int?,
+    leadingIcon: ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.heightIn(min = 43.dp).padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            if (count != null) {
+                Text(
+                    "$count",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * `.shelf-tile` 入口磁贴：图标块在上方（39dp、底色 = 强调色 13% 透明），
+ * 下方标题 +「N 项」计数。卡片描边、圆角 21dp、surface 底、min-height 148dp。
+ *
+ * [countSuffix] 默认「本」以兼容既有回归测试（LibraryInteractionTest 断言「123 本」）；
+ * 书架磁贴传「项」对齐设计稿文案。
+ */
 @Composable
 internal fun ShelfEntryCard(
     modifier: Modifier = Modifier,
@@ -261,28 +492,30 @@ internal fun ShelfEntryCard(
     title: String,
     count: Int,
     iconTint: Color = MaterialTheme.colorScheme.primary,
+    countSuffix: String = "本",
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 108.dp),
-        shape = RoundedCornerShape(24.dp),
+        modifier = modifier.heightIn(min = 148.dp),
+        shape = RoundedCornerShape(21.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 148.dp).padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Surface(
-                modifier = Modifier.size(40.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = iconTint.copy(alpha = 0.14f),
+                modifier = Modifier.size(39.dp),
+                shape = RoundedCornerShape(13.dp),
+                color = iconTint.copy(alpha = 0.13f),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         icon,
                         contentDescription = null,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                         tint = iconTint,
                     )
                 }
@@ -296,8 +529,9 @@ internal fun ShelfEntryCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    "$count 本",
+                    "$count $countSuffix",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -306,8 +540,10 @@ internal fun ShelfEntryCard(
     }
 }
 
-/** 收藏 / 历史 / 全部 的分区列表页（复用首页网格） */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 分区列表页（全部 / 收藏 / 历史）：`.subpage-head` 版式（返回圆钮 + 标题 +「N 本书」），
+ * 下方直接复用既有 [BookGrid]，空态沿用 [EmptyState]。
+ */
 @Composable
 fun ListScreen(
     section: ShelfSection,
@@ -330,37 +566,85 @@ fun ListScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = { Text(section.label, fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
     ) { padding ->
-        if (books.isEmpty()) {
-            EmptyState(
-                icon = sectionIcon(section),
-                title = "${section.label}还是空的",
-                subtitle = sectionHint(section),
-                modifier = Modifier.padding(padding),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            ShelfSubpageHead(
+                title = section.label,
+                subtitle = "${books.size} 本书",
+                onBack = onBack,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
             )
-        } else {
-            BookGrid(
-                books = books,
-                onOpenBook = onOpenBook,
-                onToggleFavorite = onToggleFavorite,
-                onDeleteBook = onDeleteBook,
-                modifier = Modifier.padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
+            if (books.isEmpty()) {
+                EmptyState(
+                    icon = sectionIcon(section),
+                    title = "${section.label}还是空的",
+                    subtitle = sectionHint(section),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                BookGrid(
+                    books = books,
+                    onOpenBook = onOpenBook,
+                    onToggleFavorite = onToggleFavorite,
+                    onDeleteBook = onDeleteBook,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * `.subpage-head`：返回圆钮 + 标题 + 副标题。子页（分区列表 / 书签）共用。
+ * 返回钮保留「返回」contentDescription。
+ */
+@Composable
+internal fun ShelfSubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -380,10 +664,10 @@ private fun sectionHint(section: ShelfSection): String = when (section) {
 }
 
 /**
- * 书签列表页：书名 + 页码 + 时间，点击跳转阅读器对应页，
- * 尾部删除按钮（带确认）。
+ * 书签列表页（`.chapter-row` 版式）：返回圆钮 +「书签 / N 条记录」子页头，
+ * 内容为描边圆角列表容器内的行——左侧书名、右侧小字「第 N 页」，尾部删除钮（保留二次确认）。
+ * 设计稿行的「· 备注」因 [BookmarkEntity] 无备注字段而省略（不伪造字段）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksScreen(onBack: () -> Unit, onOpenBookPage: (bookId: Long, page: Int) -> Unit) {
     val repo: LibraryRepository = rememberLibraryRepository()
@@ -395,42 +679,45 @@ fun BookmarksScreen(onBack: () -> Unit, onOpenBookPage: (bookId: Long, page: Int
 
     var pendingDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("书签", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+    Scaffold { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            ShelfSubpageHead(
+                title = "书签",
+                subtitle = "${bookmarks.size} 条记录",
+                onBack = onBack,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
+            )
+            if (bookmarks.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Outlined.Bookmarks,
+                    title = "还没有书签",
+                    subtitle = "阅读时通过阅读器菜单添加书签，会集中出现在这里",
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        itemsIndexed(bookmarks, key = { _, item -> item.id }) { index, bookmark ->
+                            val book = booksById[bookmark.bookId]
+                            BookmarkRow(
+                                bookmark = bookmark,
+                                bookTitle = book?.title ?: "书籍已删除",
+                                isLast = index == bookmarks.lastIndex,
+                                onClick = {
+                                    if (book != null) onOpenBookPage(bookmark.bookId, bookmark.pageIndex)
+                                },
+                                onDelete = { pendingDelete = bookmark },
+                            )
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
-    ) { padding ->
-        if (bookmarks.isEmpty()) {
-            EmptyState(
-                icon = Icons.Outlined.Bookmarks,
-                title = "还没有书签",
-                subtitle = "阅读时通过阅读器菜单添加书签，会集中出现在这里",
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(bookmarks, key = { it.id }) { bookmark ->
-                    val book = booksById[bookmark.bookId]
-                    BookmarkRow(
-                        bookmark = bookmark,
-                        bookTitle = book?.title ?: "书籍已删除",
-                        onClick = { if (book != null) onOpenBookPage(bookmark.bookId, bookmark.pageIndex) },
-                        onDelete = { pendingDelete = bookmark },
-                    )
                 }
             }
         }
@@ -455,63 +742,57 @@ fun BookmarksScreen(onBack: () -> Unit, onOpenBookPage: (bookId: Long, page: Int
     }
 }
 
-/** 书签条目卡片：金色图标块 + 书名/页码时间 + 删除按钮 */
+/** `.chapter-row` 书签行：左书名 + 右「第 N 页」小字 + 删除钮；行间细分隔线（末行无）。 */
 @Composable
 private fun BookmarkRow(
     bookmark: BookmarkEntity,
     bookTitle: String,
+    isLast: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val goldTint = accentColor(AccentColor.GOLD)
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Column {
+        Surface(
+            onClick = onClick,
+            color = Color.Transparent,
         ) {
-            Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(13.dp),
-                color = goldTint.copy(alpha = 0.14f),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .padding(start = 15.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Outlined.Bookmarks,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = goldTint,
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
                 Text(
                     bookTitle,
-                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.width(10.dp))
                 Text(
-                    "第 ${bookmark.pageIndex + 1} 页 · ${formatDate(bookmark.createdAt)}",
-                    style = MaterialTheme.typography.bodySmall,
+                    "第 ${bookmark.pageIndex + 1} 页",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Outlined.DeleteOutline,
+                        contentDescription = "删除书签",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Outlined.DeleteOutline,
-                    contentDescription = "删除书签",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        }
+        if (!isLast) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 15.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.xyreader.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,20 +28,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -78,10 +76,12 @@ import kotlinx.coroutines.launch
 private val CONFIG_TABS = listOf("翻页模式", "页面", "字体")
 
 /**
- * 阅读配置管理页：顶部胶囊分组 + 横向分页（取代早期整页上下滑动）。
- * 修改立即持久化；小说字体与排版设置对打开中的文字书即时重分页。
+ * 阅读配置管理页（设计源 index.html configView）：
+ * 子页头（返回圆钮 + 标题 + 副标题）+ 顶部胶囊分组（CapsuleTab）+ 横向分页。
+ * 控件外观对齐设计 .pref-card 体系：pref-title/pref-hint、choice-row（radio-dot + 选中描边）、
+ * pill-option（描边胶囊，选中 = primary-container 底）、switch-row、range-card（滑条 + 数值）、
+ * color-choice 圆色块。功能与存储键零改动；修改立即持久化。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderConfigScreen(onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
@@ -93,31 +93,24 @@ fun ReaderConfigScreen(onBack: () -> Unit) {
         scope.launch { repo.setReaderPrefs(transform(prefs)) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("阅读配置管理", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
-            )
-        },
-    ) { padding ->
+    Scaffold { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            SubpageHead(
+                title = "阅读配置管理",
+                subtitle = "更改会显示在阅读器预览中。",
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+
             // —— 顶部胶囊分组：点胶囊换组，与横滑分页双向同步 ——
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 CONFIG_TABS.forEachIndexed { index, label ->
@@ -143,6 +136,57 @@ fun ReaderConfigScreen(onBack: () -> Unit) {
     }
 }
 
+/**
+ * 子页头（对应设计 .subpage-head）：40dp 圆角描边返回钮 + 标题（titleLarge/Bold）+ 副标题。
+ * 本文件私有实现，避免与其他子代理页面中的同名共用组件冲突（未改 Common.kt）。
+ */
+@Composable
+private fun SubpageHead(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            onClick = onBack,
+            modifier = Modifier.size(40.dp),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 /** 组内容容器：统一内边距与间距；内容超高时可内部滚动（常规屏幕无需滚动） */
 @Composable
 private fun GroupPage(scrollable: Boolean = false, content: @Composable () -> Unit) {
@@ -151,7 +195,7 @@ private fun GroupPage(scrollable: Boolean = false, content: @Composable () -> Un
         .padding(horizontal = 16.dp)
     Column(
         modifier = if (scrollable) base.verticalScroll(rememberScrollState()) else base,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         content()
         Spacer(Modifier.height(24.dp))
@@ -160,11 +204,11 @@ private fun GroupPage(scrollable: Boolean = false, content: @Composable () -> Un
 
 // ---------- 组 1：翻页模式 ----------
 
-/** 翻页方式 / 点击翻页开关 / 双击放大开关 / 漫画方向 */
+/** 翻页方式 / 阅读手势（点击翻页、双击放大）/ 漫画方向 */
 @Composable
 private fun PagingGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> ReaderPrefs) -> Unit) {
     GroupPage {
-        PrefCard(
+        ChoiceCard(
             title = "翻页模式",
             options = PageMode.entries,
             selected = prefs.pageMode,
@@ -175,25 +219,28 @@ private fun PagingGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Read
             onSelect = { mode -> onUpdate { it.copy(pageMode = mode) } },
         )
         SwitchCard(
-            title = "点击翻页",
-            hint = "开启：点屏幕左右两侧翻页；关闭：点击只呼出/收起工具栏（滑动翻页不受影响）",
-            checked = prefs.tapTurnPage,
-            onChange = { value -> onUpdate { it.copy(tapTurnPage = value) } },
+            title = "阅读手势",
+            items = listOf(
+                SwitchSpec(
+                    title = "点击翻页",
+                    hint = "开启：点屏幕左右两侧翻页；关闭：点击只呼出/收起工具栏（滑动翻页不受影响）",
+                    checked = prefs.tapTurnPage,
+                    onChange = { value -> onUpdate { it.copy(tapTurnPage = value) } },
+                ),
+                SwitchSpec(
+                    title = "双击放大",
+                    hint = "双击页内放大到 2.5 倍，再双击还原",
+                    checked = prefs.doubleTapZoom,
+                    onChange = { value -> onUpdate { it.copy(doubleTapZoom = value) } },
+                ),
+            ),
         )
-        SwitchCard(
-            title = "双击放大",
-            hint = "双击页内放大到 2.5 倍，再双击还原",
-            checked = prefs.doubleTapZoom,
-            onChange = { value -> onUpdate { it.copy(doubleTapZoom = value) } },
-        )
-        PrefCard(
+        ChoiceCard(
             title = "漫画方向",
             options = MangaDirection.entries,
             selected = prefs.mangaDirection,
             label = { it.label },
-            sublabel = {
-                if (it == MangaDirection.RTL) "翻页从右往左，日漫适用" else null
-            },
+            sublabel = { if (it == MangaDirection.RTL) "翻页从右往左，日漫适用" else null },
             onSelect = { dir -> onUpdate { it.copy(mangaDirection = dir) } },
         )
     }
@@ -201,7 +248,7 @@ private fun PagingGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Read
 
 // ---------- 组 2：页面 ----------
 
-/** 阅读背景 / 图片缩放 / 屏幕方向 / 亮度 / 屏幕常亮 */
+/** 阅读背景 / 图片缩放 / 图片渲染质量 / 屏幕方向 / 亮度 / 屏幕常亮 */
 @Composable
 private fun DisplayGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> ReaderPrefs) -> Unit) {
     GroupPage(scrollable = true) {
@@ -209,31 +256,23 @@ private fun DisplayGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Rea
             selected = prefs.readBackground,
             onSelect = { bg -> onUpdate { it.copy(readBackground = bg) } },
         )
-        PrefCard(
+        PillCard(
             title = "图片缩放",
             options = ImageScale.entries,
             selected = prefs.imageScale,
             label = { it.label },
-            sublabel = {
-                if (it == ImageScale.FILL_WIDTH) "铺满屏幕宽度，长图更沉浸" else "整页完整显示，留白用背景色"
-            },
+            hint = "整页显示，或铺满屏幕宽度。",
             onSelect = { scale -> onUpdate { it.copy(imageScale = scale) } },
         )
-        PrefCard(
+        PillCard(
             title = "图片渲染质量",
             options = ImageQuality.entries,
             selected = prefs.imageQuality,
             label = { it.label },
-            sublabel = {
-                if (it == ImageQuality.HIGH) {
-                    "大图缩小显示前先做多级高质量重采样，更干净少摩尔纹（首次翻页略慢）"
-                } else {
-                    "原图直接缩放显示（默认，与旧版一致）"
-                }
-            },
+            hint = "漫画与图片页的显示清晰度。",
             onSelect = { quality -> onUpdate { it.copy(imageQuality = quality) } },
         )
-        PrefCard(
+        ChoiceCard(
             title = "屏幕方向",
             options = ScreenOrientation.entries,
             selected = prefs.screenOrientation,
@@ -245,52 +284,45 @@ private fun DisplayGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Rea
             onBrightness = { value -> onUpdate { it.copy(brightness = value) } },
         )
         SwitchCard(
-            title = "屏幕常亮",
-            hint = "阅读时屏幕不自动熄灭",
-            checked = prefs.keepScreenOn,
-            onChange = { value -> onUpdate { it.copy(keepScreenOn = value) } },
+            title = "屏幕",
+            items = listOf(
+                SwitchSpec(
+                    title = "屏幕常亮",
+                    hint = "阅读时屏幕不自动熄灭",
+                    checked = prefs.keepScreenOn,
+                    onChange = { value -> onUpdate { it.copy(keepScreenOn = value) } },
+                ),
+            ),
         )
     }
 }
 
-/** 阅读背景：四档圆色块 + 标签 */
+/** 阅读背景：四档圆色块（选中 = 强调色描边圈） */
 @Composable
 private fun BackgroundCard(selected: ReadBackground, onSelect: (ReadBackground) -> Unit) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                "阅读背景",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(4.dp))
+    ConfigCard(title = "阅读背景", hint = "页面四周留白的颜色。") {
+        Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             ReadBackground.entries.forEach { bg ->
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selected == bg) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            } else {
+                                Modifier
+                            },
+                        )
                         .clickable { onSelect(bg) },
-                    verticalAlignment = Alignment.CenterVertically,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    RadioButton(selected = selected == bg, onClick = { onSelect(bg) })
                     Box(
                         modifier = Modifier
                             .size(22.dp)
                             .clip(CircleShape)
                             .background(Color(bg.argb.toInt()))
                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = bg.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (selected == bg) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected == bg) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
                     )
                 }
             }
@@ -302,34 +334,32 @@ private fun BackgroundCard(selected: ReadBackground, onSelect: (ReadBackground) 
 @Composable
 private fun BrightnessCard(brightness: Float?, onBrightness: (Float?) -> Unit) {
     var sliderValue by remember(brightness) { mutableFloatStateOf(brightness ?: 0.5f) }
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "阅读亮度",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                TextButton(onClick = { onBrightness(null) }) {
-                    Text("跟随系统", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            Slider(
-                value = sliderValue,
-                onValueChange = { value ->
-                    sliderValue = value
-                    onBrightness(value)
-                },
-                valueRange = 0.01f..1f,
-            )
+    ConfigCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (brightness == null) "当前：跟随系统" else "当前：${(sliderValue * 100).roundToInt()}%",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "阅读亮度",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            TextButton(onClick = { onBrightness(null) }) {
+                Text("跟随系统", style = MaterialTheme.typography.labelMedium)
+            }
         }
+        Slider(
+            value = sliderValue,
+            onValueChange = { value ->
+                sliderValue = value
+                onBrightness(value)
+            },
+            valueRange = 0.01f..1f,
+        )
+        Text(
+            if (brightness == null) "当前：跟随系统" else "当前：${(sliderValue * 100).roundToInt()}%",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -379,7 +409,7 @@ private fun FontGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reader
         importError?.let { message ->
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
-        PrefCard(
+        PillCard(
             title = "字体粗细",
             options = NovelFontWeight.entries,
             selected = prefs.novelFontWeight,
@@ -395,16 +425,21 @@ private fun FontGroupPage(prefs: ReaderPrefs, onUpdate: ((ReaderPrefs) -> Reader
         )
         NovelSpacingControls(prefs = prefs, onUpdate = onUpdate)
         SwitchCard(
-            title = "首行缩进",
-            hint = "每段首行缩进 2 个字符；段落已带空白缩进时按总宽对齐，不叠加",
-            checked = prefs.novelFirstLineIndent,
-            onChange = { value -> onUpdate { it.copy(novelFirstLineIndent = value) } },
-        )
-        SwitchCard(
-            title = "章首另起一页",
-            hint = "每章从新的一页开始，上一页剩余空间留白（主流阅读器默认行为）；关闭后章节连排",
-            checked = prefs.novelChapterNewPage,
-            onChange = { value -> onUpdate { it.copy(novelChapterNewPage = value) } },
+            title = "段落与章节",
+            items = listOf(
+                SwitchSpec(
+                    title = "首行缩进",
+                    hint = "每段首行缩进 2 个字符；段落已带空白缩进时按总宽对齐，不叠加",
+                    checked = prefs.novelFirstLineIndent,
+                    onChange = { value -> onUpdate { it.copy(novelFirstLineIndent = value) } },
+                ),
+                SwitchSpec(
+                    title = "章首另起一页",
+                    hint = "每章从新的一页开始，上一页剩余空间留白（主流阅读器默认行为）；关闭后章节连排",
+                    checked = prefs.novelChapterNewPage,
+                    onChange = { value -> onUpdate { it.copy(novelChapterNewPage = value) } },
+                ),
+            ),
         )
         Text(
             "内置字体：霞鹜文楷（SIL OFL 1.1）、朱雀仿宋（SIL OFL 1.1 · 璇玑造字）、" +
@@ -426,52 +461,42 @@ private fun FontListCard(
     onDeleteImported: (File) -> Unit,
     onImportClick: () -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                "小说字体",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+    ConfigCard(title = "小说字体") {
+        NovelFontFamily.entries.forEach { family ->
+            val familyPreview = remember(family) { previewFamilyOf(family) }
+            FontRow(
+                title = family.label,
+                selected = prefs.novelCustomFont == null && prefs.novelFontFamily == family,
+                previewFamily = familyPreview,
+                onClick = { onSelectFamily(family) },
             )
-            Spacer(Modifier.height(4.dp))
+        }
+        imported.forEach { file ->
+            val filePreview = remember(file) {
+                runCatching { FontFamily(Font(file)) }.getOrNull()
+            }
+            FontRow(
+                title = NovelFonts.displayName(file),
+                selected = prefs.novelCustomFont == file.name,
+                previewFamily = filePreview,
+                onClick = { onSelectImported(file) },
+                trailing = {
+                    IconButton(onClick = { onDeleteImported(file) }) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "删除字体",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            )
+        }
 
-            NovelFontFamily.entries.forEach { family ->
-                val familyPreview = remember(family) { previewFamilyOf(family) }
-                FontRow(
-                    title = family.label,
-                    selected = prefs.novelCustomFont == null && prefs.novelFontFamily == family,
-                    previewFamily = familyPreview,
-                    onClick = { onSelectFamily(family) },
-                )
-            }
-            imported.forEach { file ->
-                val filePreview = remember(file) {
-                    runCatching { FontFamily(Font(file)) }.getOrNull()
-                }
-                FontRow(
-                    title = NovelFonts.displayName(file),
-                    selected = prefs.novelCustomFont == file.name,
-                    previewFamily = filePreview,
-                    onClick = { onSelectImported(file) },
-                    trailing = {
-                        IconButton(onClick = { onDeleteImported(file) }) {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = "删除字体",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                )
-            }
-
-            Spacer(Modifier.height(6.dp))
-            OutlinedButton(onClick = onImportClick, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("导入字体（ttf / otf / ttc）")
-            }
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(onClick = onImportClick, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("导入字体（ttf / otf / ttc）")
         }
     }
 }
@@ -485,14 +510,25 @@ private fun FontRow(
     onClick: () -> Unit,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    val shape = RoundedCornerShape(11.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
-            .clickable(onClick = onClick),
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioDot(selected)
+        Spacer(Modifier.width(10.dp))
         Text(
             text = title,
             modifier = Modifier.weight(1f),
@@ -519,81 +555,135 @@ private fun previewFamilyOf(family: NovelFontFamily): FontFamily = when (family)
     NovelFontFamily.BUNDLED_ZHUQUE -> FontFamily(Font(R.font.zhuque_fangsong))
 }
 
-// ---------- 共用组件 ----------
+// ---------- 共用组件（对齐设计 .pref-card 体系） ----------
 
-/** 开关设置卡：标题 + 说明 + 右侧 Switch，整行可点 */
+/**
+ * 设置卡外壳（对应设计 .pref-card）：18dp 圆角 + 1dp 描边 + surface 底；
+ * 标题（pref-title）+ 可选说明（pref-hint）+ 内容。
+ */
 @Composable
-private fun SwitchCard(
-    title: String,
-    hint: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
+private fun ConfigCard(
+    title: String? = null,
+    hint: String? = null,
+    content: @Composable () -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onChange(!checked) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(18.dp),
+            ),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            if (title != null) {
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(if (hint == null) 10.dp else 6.dp))
+            }
+            if (hint != null) {
                 Text(
                     hint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.width(10.dp))
-            Switch(checked = checked, onCheckedChange = onChange)
+            content()
         }
     }
 }
 
-/** 小说字号卡：滑条 + 数值 + 重排提示 */
+/** 单选点（对应设计 .radio-dot）：16dp 圈，选中为强调色描边 + 内实心点 */
 @Composable
-private fun NovelFontSizeCard(sizeSp: Float, onSizeChange: (Float) -> Unit) {
-    val sliderValue = remember(sizeSp) { mutableFloatStateOf(sizeSp.coerceIn(12f, 36f)) }
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Text(
-                "小说字号",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${sliderValue.floatValue.roundToInt()} sp",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Slider(
-                value = sliderValue.floatValue,
-                onValueChange = { sliderValue.floatValue = it },
-                onValueChangeFinished = { onSizeChange(sliderValue.floatValue) },
-                valueRange = 12f..36f,
-                steps = 23,
-            )
-            Text(
-                "字号会重新分页，并尽量保留当前阅读位置",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun RadioDot(selected: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(16.dp)
+            .border(
+                1.5.dp,
+                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
             )
         }
     }
 }
 
-/** 一组单选设置卡片：标题 + 每个选项一行（整行可点）；sublabel 返回 null 表示无副标题 */
+/** 单选行（对应设计 .choice-row）：选中 = 主色淡底 + 主色描边 */
 @Composable
-private fun <T> PrefCard(
+private fun ChoiceRow(
+    label: String,
+    sublabel: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(11.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 42.dp)
+            .clip(shape)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                },
+            )
+            .then(
+                if (selected) {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.36f), shape)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioDot(selected)
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (sublabel != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    sublabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** 一组单选设置卡片（对应设计 choiceCard）：标题 + 多个 choice-row */
+@Composable
+private fun <T> ChoiceCard(
     title: String,
     options: List<T>,
     selected: T,
@@ -601,48 +691,143 @@ private fun <T> PrefCard(
     sublabel: ((T) -> String?)? = null,
     onSelect: (T) -> Unit,
 ) {
-    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(4.dp))
+    ConfigCard(title = title) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clickable { onSelect(option) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(
-                        selected = selected == option,
-                        onClick = { onSelect(option) },
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            label(option),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected == option) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (selected == option) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                        )
-                        sublabel?.invoke(option)?.let { hint ->
-                            Text(
-                                hint,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                ChoiceRow(
+                    label = label(option),
+                    sublabel = sublabel?.invoke(option),
+                    selected = selected == option,
+                    onClick = { onSelect(option) },
+                )
             }
         }
+    }
+}
+
+/** 描边胶囊选项（对应设计 .pill-option）：选中 = primary-container 底、无描边 */
+@Composable
+private fun Pill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+/** 一组胶囊选项卡片（对应设计 pillCard）：标题 + 可选说明 + 描边胶囊行 */
+@Composable
+private fun <T> PillCard(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    hint: String? = null,
+    onSelect: (T) -> Unit,
+) {
+    ConfigCard(title = title, hint = hint) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            options.forEach { option ->
+                Pill(label = label(option), selected = selected == option) { onSelect(option) }
+            }
+        }
+    }
+}
+
+/** 开关行配置项（对应设计 switch-row 的 data 源） */
+private data class SwitchSpec(
+    val title: String,
+    val hint: String,
+    val checked: Boolean,
+    val onChange: (Boolean) -> Unit,
+)
+
+/** 开关设置卡（对应设计 switchCard）：标题 + 若干 switch-row，行间细分隔线 */
+@Composable
+private fun SwitchCard(title: String, items: List<SwitchSpec>) {
+    ConfigCard(title = title) {
+        items.forEachIndexed { index, item ->
+            if (index > 0) {
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable { item.onChange(!item.checked) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        item.hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Switch(checked = item.checked, onCheckedChange = item.onChange)
+            }
+        }
+    }
+}
+
+/** 范围卡标题行（对应设计 .range-head）：左侧标题 + 右侧主色数值 */
+@Composable
+private fun RangeTitle(title: String, valueText: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            valueText,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/** 小说字号卡（对应设计 rangeCard）：标题 + 数值 + 滑条 + 重排提示 */
+@Composable
+private fun NovelFontSizeCard(sizeSp: Float, onSizeChange: (Float) -> Unit) {
+    val sliderValue = remember(sizeSp) { mutableFloatStateOf(sizeSp.coerceIn(12f, 36f)) }
+    ConfigCard {
+        RangeTitle("小说字号", "${sliderValue.floatValue.roundToInt()} sp")
+        Slider(
+            value = sliderValue.floatValue,
+            onValueChange = { sliderValue.floatValue = it },
+            onValueChangeFinished = { onSizeChange(sliderValue.floatValue) },
+            valueRange = 12f..36f,
+            steps = 23,
+        )
+        Text(
+            "字号会重新分页，并尽量保留当前阅读位置",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
