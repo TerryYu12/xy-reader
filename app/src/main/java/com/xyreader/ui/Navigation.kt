@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -50,6 +52,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.SharedIntake
 import com.xyreader.core.ShelfSection
 import com.xyreader.reader.ReaderScreen
@@ -78,8 +81,7 @@ private object Routes {
 
 /**
  * 应用导航骨架：
- *  - 底部导航两 tab（首页 / 书架），悬浮胶囊底栏（Gmail / Play 商店风格）；
- *    底栏仅在 home / shelf 两个顶层路由显示，reader 与各子页隐藏；
+ *  - 手机保留首页 / 书架悬浮底栏；宽屏使用可折叠侧栏，阅读器隐藏侧栏并占满内容宽度；
  *  - 设置页从首页搜索框右侧齿轮进入，本地/远程仓库管理、Google Drive 账号管理为二级页，
  *    本地仓库卡片的"配置仓库"为三级页（settings/repo-config/{repoId}）；
  *  - 书架的 收藏/历史 分区走 shelf/list/{section}，书签独立一页；
@@ -97,10 +99,24 @@ fun ArkNavHost() {
 
     val homeSelected = currentRoute == Routes.HOME
     val shelfSelected = currentRoute == Routes.SHELF
-    val showBottomBar = homeSelected || shelfSelected
+    val isWideLayout = LocalConfiguration.current.screenWidthDp >= 800
+    val isReaderRoute = currentRoute?.startsWith("reader/") == true
+    val showSideRail = isWideLayout && !isReaderRoute
+    val showBottomBar = !isWideLayout && (homeSelected || shelfSelected)
+    val selectedSection = if (currentRoute == Routes.SHELF_LIST) {
+        backStackEntry?.arguments?.getString("section")?.let { value ->
+            ShelfSection.entries.firstOrNull { it.name == value }
+        }
+    } else null
+    val selectedGroupId = if (currentRoute == Routes.GROUP_BOOKS) {
+        backStackEntry?.arguments?.getLong("groupId")
+    } else null
 
     val context = LocalContext.current
     val repository = rememberLibraryRepository()
+    val railBooks by repository.books.collectAsStateWithLifecycle(initialValue = emptyList())
+    val railGroups by repository.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+    val railBookmarks by repository.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
     var importing by remember { mutableStateOf(false) }
 
     // 外部「用其他应用打开 / 分享」：导入单文件并直接进阅读器；失败提示后留在原地。
@@ -155,8 +171,32 @@ fun ArkNavHost() {
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize()) {
-            NavHost(
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding),
+        ) {
+            Row(Modifier.fillMaxSize()) {
+                if (showSideRail) {
+                    AppSideRail(
+                        route = currentRoute,
+                        selectedSection = selectedSection,
+                        selectedGroupId = selectedGroupId,
+                        books = railBooks,
+                        groups = railGroups,
+                        bookmarks = railBookmarks,
+                        onHome = { nav.navigateTab(Routes.HOME) },
+                        onShelf = { nav.navigateTab(Routes.SHELF) },
+                        onOpenSection = { section -> nav.navigate("shelf/list/${section.name}") },
+                        onOpenBookmarks = { nav.navigate(Routes.BOOKMARKS) },
+                        onOpenGroup = { groupId -> nav.navigate("shelf/group/$groupId") },
+                        onContinueReading = { bookId -> nav.openBook(bookId, page = 0) },
+                        onSettings = { nav.navigate(Routes.SETTINGS) },
+                        modifier = Modifier.fillMaxHeight(),
+                    )
+                }
+                NavHost(
             navController = nav,
             startDestination = Routes.HOME,
             // 屏幕切换不要淡入淡出：navigation-compose 2.7+ 默认 700ms 交叉淡入淡出，
@@ -167,9 +207,8 @@ fun ArkNavHost() {
             popExitTransition = { ExitTransition.None },
             // consumeWindowInsets：外层已消费的窗口内边距不再被内层 Scaffold/TopAppBar 重复应用
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .consumeWindowInsets(padding),
+                .weight(1f)
+                .fillMaxHeight(),
             ) {
             // 首页：搜索 + 封面网格 + FAB 扫描
             composable(Routes.HOME) {
@@ -335,6 +374,7 @@ fun ArkNavHost() {
             }
 
         }
+            }
             // 全局更新器宿主与路由同级，切到设置/书架/阅读页后仍可呈现手动检查结果。
             UpdateHost()
             if (importing) {

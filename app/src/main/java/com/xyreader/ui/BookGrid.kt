@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -74,11 +72,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.xyreader.core.BookEntity
@@ -115,7 +115,7 @@ internal class BookGridDragState {
     }
 }
 
-/** 首页、分组页和书架列表共用的双列封面网格。 */
+/** 首页、分组页和书架列表共用的封面网格。 */
 @Composable
 internal fun BookGrid(
     books: List<BookEntity>,
@@ -136,6 +136,7 @@ internal fun BookGrid(
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val dragEnabled = onReorderBooks != null || dropTargets.isNotEmpty()
     var rootCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var pendingDelete by remember { mutableStateOf<BookEntity?>(null) }
@@ -183,6 +184,7 @@ internal fun BookGrid(
     }
 
     // 手势监听放在稳定容器上；滚动时原书卡可能离开组合，ghost 和拖动状态仍会保留。
+    val columns = if (screenWidthDp > 1120) GridCells.Fixed(4) else GridCells.Fixed(3)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -242,7 +244,7 @@ internal fun BookGrid(
             },
     ) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = columns,
             state = gridState,
             modifier = Modifier.fillMaxSize().onGloballyPositioned {
                 state.gridBoundsInRoot = it.boundsInRoot()
@@ -251,7 +253,7 @@ internal fun BookGrid(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-        items(books, key = { it.id }) { book ->
+            items(books, key = { it.id }) { book ->
                 BookCard(
                     book = book,
                     groups = groups,
@@ -269,21 +271,31 @@ internal fun BookGrid(
         }
 
         if (state.draggedBookId != null) {
-            Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)
-                    .onGloballyPositioned { state.deleteTargetBoundsInRoot = it.boundsInRoot() },
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                shadowElevation = 8.dp,
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                latestDropTargets.firstOrNull { it.key == "home-ungrouped" }?.let { target ->
+                    BookDropTargetChip(target, state)
+                }
+                Surface(
+                    modifier = Modifier.onGloballyPositioned {
+                        state.deleteTargetBoundsInRoot = it.boundsInRoot()
+                    },
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    shadowElevation = 8.dp,
                 ) {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
-                    Text("拖到这里删除", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                        Text("拖到这里删除", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
             books.firstOrNull { it.id == state.draggedBookId }?.let { draggedBook ->
@@ -411,7 +423,10 @@ internal fun BookCard(
                     )
                 }
             }
-            // 封面右下页码徽标已按稿移除（进度改在封面下方细进度条呈现）
+            BookReadingProgressBadge(
+                book = book,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 8.dp),
+            )
         }
 
         Spacer(Modifier.height(6.dp))
@@ -464,31 +479,6 @@ internal fun BookCard(
                         onClick = { menuOpen = false; confirmDelete = true },
                     )
                 }
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        // 第二行：分组/格式 · P% 已读（对应设计稿 .book-meta）
-        Text(
-            bookMeta(book, groups),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        // 细进度条：仅进度>0 时显示（对应设计稿 .book-progress）
-        val progress = bookProgress(book)
-        if (progress > 0) {
-            Spacer(Modifier.height(6.dp))
-            Box(
-                Modifier.fillMaxWidth().height(3.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)),
-            ) {
-                Box(
-                    Modifier.fillMaxHeight()
-                        .fillMaxWidth(progress / 100f)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
             }
         }
     }
@@ -633,19 +623,29 @@ private fun reorderBookList(books: List<BookEntity>, draggedId: Long, targetId: 
     return result
 }
 
-/** 卡片副标题：分组 · 格式 · P% 已读 / 未读（对应设计稿 .book-meta） */
-private fun bookMeta(book: BookEntity, groups: List<BookGroupEntity>): String {
-    val format = runCatching { BookFormat.valueOf(book.format).displayName }.getOrDefault("未知")
-    val group = groups.firstOrNull { it.id == book.groupId }?.name ?: "未分组"
-    val progress = bookProgress(book)
-    return if (progress > 0) "$group · $format · $progress% 已读" else "$group · $format · 未读"
-}
-
 /** 阅读进度百分比（无总页数或未读时按 0 处理） */
 private fun bookProgress(book: BookEntity): Int =
     if (book.totalPages > 0 && book.currentPage > 0) {
         (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
     } else 0
+
+/** 封面右下角显示整数阅读进度；没有有效页数时显示 0%。 */
+@Composable
+internal fun BookReadingProgressBadge(book: BookEntity, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        color = ScrimColor,
+        contentColor = Color.White,
+    ) {
+        Text(
+            "${bookProgress(book)}%",
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
 
 @Composable
 private fun GroupPickRow(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -667,13 +667,26 @@ private fun GroupPickRow(label: String, selected: Boolean, onClick: () -> Unit) 
 
 @Composable
 private fun FormatTag(format: String, modifier: Modifier = Modifier) {
-    val label = runCatching { BookFormat.valueOf(format).displayName }.getOrDefault("未知")
+    val label = when (runCatching { BookFormat.valueOf(format) }.getOrDefault(BookFormat.UNKNOWN)) {
+        BookFormat.CBZ -> "CBZ"
+        BookFormat.CBR -> "CBR"
+        BookFormat.CB7 -> "7Z"
+        BookFormat.CBT -> "TAR"
+        BookFormat.DIRECTORY -> "目录"
+        BookFormat.UNKNOWN -> "未知"
+        else -> BookFormat.valueOf(format).name
+    }
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
         contentColor = MaterialTheme.colorScheme.primary,
     ) {
-        Text(label, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            maxLines = 1,
+        )
     }
 }

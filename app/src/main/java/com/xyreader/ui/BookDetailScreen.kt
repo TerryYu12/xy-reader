@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -142,7 +143,6 @@ fun BookDetailScreen(
                         onDelete = { confirmDelete = true },
                     )
                 }
-                item("stats") { StatsRow(current) }
                 item("toc_header") { TocHeader(toc) }
 
                 when (val t = toc) {
@@ -237,7 +237,7 @@ private fun DetailSubpageHead(subtitle: String, onBack: () -> Unit) {
     }
 }
 
-/** 详情主体（对应设计源 .detail-cover + .detail-main）：大封面 + 书名 + 统计胶囊行 + 操作按钮 */
+/** 详情首屏：手机和宽屏都把封面放左侧，书名、格式和阅读数据放右侧。 */
 @Composable
 private fun BookInfoSection(
     book: BookEntity,
@@ -250,54 +250,119 @@ private fun BookInfoSection(
     val progress = if (book.totalPages > 0 && book.currentPage > 0) {
         (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
     } else 0
-    val formatName = runCatching { BookFormat.valueOf(book.format).displayName }.getOrDefault("未知")
-
+    val compact = LocalConfiguration.current.screenWidthDp <= 800
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp)) {
-        // 大封面：无封面走新主题的默认封面（渐变艺术封面）
-        Box(
-            modifier = Modifier
-                .width(148.dp)
-                .aspectRatio(0.72f)
-                .shadow(elevation = 3.dp, shape = corner)
-                .clip(corner)
-                .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant)),
-        ) {
-            if (book.coverPath == null) {
-                DefaultBookCover(book = book, modifier = Modifier.fillMaxSize(), compact = true)
+        if (compact) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    DetailBookCover(book, width = 111.dp, compact = true, shape = corner)
+                    Column(Modifier.weight(1f)) {
+                        DetailBookIdentity(book)
+                        Spacer(Modifier.height(10.dp))
+                        DetailReadingPills(book, progress)
+                    }
+                }
+                StatsRow(book)
+                DetailActions(
+                    book = book,
+                    progress = progress,
+                    onContinue = onContinue,
+                    onStartFromBeginning = onStartFromBeginning,
+                    onToggleFavorite = onToggleFavorite,
+                    onDelete = onDelete,
+                )
             }
-            AsyncImage(
-                model = book.coverPath?.let(::File),
-                contentDescription = book.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                DetailBookCover(book, width = 220.dp, compact = false, shape = corner)
+                Column(Modifier.weight(1f)) {
+                    DetailBookIdentity(book)
+                    Spacer(Modifier.height(16.dp))
+                    DetailReadingPills(book, progress)
+                    Spacer(Modifier.height(14.dp))
+                    StatsRow(book)
+                    Spacer(Modifier.height(8.dp))
+                    DetailActions(
+                        book = book,
+                        progress = progress,
+                        onContinue = onContinue,
+                        onStartFromBeginning = onStartFromBeginning,
+                        onToggleFavorite = onToggleFavorite,
+                        onDelete = onDelete,
+                    )
+                }
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            book.title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            bookMetaLine(book),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(16.dp))
-        // 统计胶囊行（对应 .stat-pill）：进度 / 页数 / 格式
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatPill(if (progress > 0) "$progress% 已读" else "尚未开始")
-            StatPill(if (book.totalPages > 0) "${book.totalPages} 页" else "页数未知")
-            StatPill(formatName)
+    }
+}
+
+@Composable
+private fun DetailBookCover(book: BookEntity, width: androidx.compose.ui.unit.Dp, compact: Boolean, shape: RoundedCornerShape) {
+    Box(
+        modifier = Modifier.width(width)
+            .aspectRatio(0.72f)
+            .shadow(elevation = 3.dp, shape = shape)
+            .clip(shape)
+            .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant)),
+    ) {
+        if (book.coverPath == null) {
+            DefaultBookCover(book = book, modifier = Modifier.fillMaxSize(), compact = compact)
         }
-        Spacer(Modifier.height(18.dp))
-        // 主操作：继续阅读 / 开始阅读（主色胶囊，对应 .button.primary）
+        AsyncImage(
+            model = book.coverPath?.let(::File),
+            contentDescription = book.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+@Composable
+private fun DetailBookIdentity(book: BookEntity) {
+    Text(
+        book.title,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        bookMetaLine(book),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun DetailReadingPills(book: BookEntity, progress: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StatPill(if (progress > 0) "$progress% 已读" else "尚未开始")
+        StatPill(if (book.totalPages > 0) "${book.totalPages} 页" else "页数未知")
+    }
+}
+
+@Composable
+private fun DetailActions(
+    book: BookEntity,
+    progress: Int,
+    onContinue: () -> Unit,
+    onStartFromBeginning: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column {
         DetailButton(
             label = if (progress > 0) "继续阅读" else "开始阅读",
             icon = Icons.Filled.PlayArrow,
@@ -306,7 +371,6 @@ private fun BookInfoSection(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(9.dp))
-        // 次级操作：从头开始（重置进度到第 1 页）/ 收藏 / 删除（保留应用既有入口，对应 .button）
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             DetailButton(
                 label = "从头开始",
@@ -540,12 +604,11 @@ private fun TocCaption(text: String, loading: Boolean = false) {
     }
 }
 
-/** 元信息一行：格式 · 大小 · 页数 */
+/** 元信息一行：格式 · 文件大小；页数显示在独立统计胶囊中。 */
 private fun bookMetaLine(book: BookEntity): String {
     val parts = mutableListOf<String>()
     runCatching { BookFormat.valueOf(book.format).displayName }.getOrNull()?.let(parts::add)
     if (book.size > 0) parts.add(formatSize(book.size))
-    if (book.totalPages > 0) parts.add("共 ${book.totalPages} 页")
     return if (parts.isEmpty()) "—" else parts.joinToString(" · ")
 }
 

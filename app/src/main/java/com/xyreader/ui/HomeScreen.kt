@@ -6,7 +6,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,11 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -52,7 +49,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,17 +59,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -96,7 +85,7 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-/** 首页：品牌顶栏、继续阅读、分类与分组抽屉、封面网格；长按拖动可手动排序、分组或删除。 */
+/** 首页：品牌顶栏、继续阅读、紧凑分组条与封面网格；长按可排序、分组或删除。 */
 @Composable
 fun HomeScreen(
     onOpenBook: (Long) -> Unit,
@@ -118,7 +107,6 @@ fun HomeScreen(
 
     var sort by rememberSaveable { mutableStateOf(SortOption.RECENT_READ) }
     var query by rememberSaveable { mutableStateOf("") }
-    var activeCategory by rememberSaveable { mutableStateOf("all") }
     var showAddGroup by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var previewOrder by remember { mutableStateOf<List<Long>?>(null) }
@@ -138,12 +126,6 @@ fun HomeScreen(
         repo.books(ShelfSection.ALL, sort, "")
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    LaunchedEffect(groups, activeCategory) {
-        if (activeCategory.startsWith("group:")) {
-            val id = activeCategory.removePrefix("group:").toLongOrNull()
-            if (id == null || groups.none { it.id == id }) activeCategory = "all"
-        }
-    }
     LaunchedEffect(layout.homeBookOrder) {
         if (previewOrder == layout.homeBookOrder) previewOrder = null
     }
@@ -156,16 +138,7 @@ fun HomeScreen(
     val queryBooks = remember(orderedBooks, query) {
         if (query.isBlank()) orderedBooks else orderedBooks.filter { it.title.contains(query, ignoreCase = true) }
     }
-    val visibleBooks = remember(queryBooks, activeCategory) {
-        when {
-            activeCategory == "ungrouped" -> queryBooks.filter { it.groupId == null }
-            activeCategory.startsWith("group:") -> {
-                val id = activeCategory.removePrefix("group:").toLongOrNull()
-                queryBooks.filter { it.groupId == id }
-            }
-            else -> queryBooks
-        }
-    }
+    val visibleBooks = queryBooks
 
     // —— 「继续阅读」焦点卡：取最近阅读（lastReadAt 最大且有进度）的一本 ——
     val recentBook = remember(allBooks) {
@@ -175,11 +148,8 @@ fun HomeScreen(
 
     val dragState = remember { BookGridDragState() }
     val dropTargets = remember(groups) {
-        listOf(BookDropTarget("home-ungrouped", null, "未分组")) + groups.flatMap { group ->
-            listOf(
-                BookDropTarget("home-group-${group.id}", group.id, group.name),
-                BookDropTarget("home-folder-${group.id}", group.id, group.name),
-            )
+        listOf(BookDropTarget("home-ungrouped", null, "未分组")) + groups.map { group ->
+            BookDropTarget("home-folder-${group.id}", group.id, group.name)
         }
     }
     val groupBookCounts = remember(groups, allBooks) {
@@ -214,9 +184,10 @@ fun HomeScreen(
             val message = when (kind) {
                 QuickReadKind.LAST -> "还没有任何阅读记录"
                 QuickReadKind.SHELF_LAST ->
-                    if (visibleBooks.isEmpty()) "当前分类是空的" else "当前分类还没有阅读记录"
+                    if (visibleBooks.isEmpty()) "当前搜索结果为空" else "当前书架还没有阅读记录"
                 QuickReadKind.SHELF_RANDOM ->
-                    if (allBooks.isEmpty()) "书架空空如也，先导入一些书吧" else "当前分类是空的"
+                    if (allBooks.isEmpty()) "书架空空如也，先导入一些书吧"
+                    else if (visibleBooks.isEmpty()) "当前搜索结果为空" else "当前书架是空的"
                 QuickReadKind.RANDOM -> "书架空空如也，先导入一些书吧"
             }
             scope.launch { snackbar.showSnackbar(message) }
@@ -239,65 +210,6 @@ fun HomeScreen(
                 // 「继续阅读」焦点卡：无符合条件的书时整卡不显示
                 recentBook?.let { book ->
                     ContinueReadingCard(book = book, onContinue = { onOpenReader(book.id) })
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                        .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    HomeCategoryChip("全部", activeCategory == "all", onClick = { activeCategory = "all" })
-                    HomeCategoryChip(
-                        label = "未分组",
-                        selected = activeCategory == "ungrouped",
-                        onClick = { activeCategory = "ungrouped" },
-                        modifier = Modifier.onGloballyPositioned {
-                            dragState.registerTarget("home-ungrouped", it.boundsInRoot())
-                        },
-                    )
-                    groups.forEach { group ->
-                        val key = "group:${group.id}"
-                        val dropKey = "home-group-${group.id}"
-                        DisposableEffect(dragState, dropKey) {
-                            onDispose { dragState.unregisterTarget(dropKey) }
-                        }
-                        HomeCategoryChip(
-                            label = group.name,
-                            selected = activeCategory == key,
-                            onClick = { activeCategory = key },
-                            modifier = Modifier.onGloballyPositioned {
-                                dragState.registerTarget(dropKey, it.boundsInRoot())
-                            },
-                        )
-                    }
-                    val addChipColor = MaterialTheme.colorScheme.primary
-                    Surface(
-                        onClick = { newGroupName = ""; showAddGroup = true },
-                        shape = RoundedCornerShape(999.dp),
-                        color = Color.Transparent,
-                        contentColor = addChipColor,
-                        // 设计稿 .chip.add：虚线描边 + 主色文字
-                        modifier = Modifier.drawBehind {
-                            drawRoundRect(
-                                color = addChipColor,
-                                style = Stroke(
-                                    width = 1.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f), 0f),
-                                ),
-                                cornerRadius = CornerRadius(size.height / 2f),
-                            )
-                        },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("新建分组", style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                        }
-                    }
                 }
 
                 HomeGroupFolderSection(
@@ -328,6 +240,13 @@ fun HomeScreen(
                             snackbar.showSnackbar(if (cleared) "已清除分组封面" else "清除分组封面失败")
                         }
                     },
+                    onCreateGroup = { newGroupName = ""; showAddGroup = true },
+                    onDeleteGroup = { groupId ->
+                        scope.launch {
+                            repo.removeGroup(groupId)
+                            snackbar.showSnackbar("分组已删除，组内书已移至未分组")
+                        }
+                    },
                 )
 
                 // 数量 + 排序行：左侧「N 本书」，右侧带当前排序标签的下拉按钮
@@ -355,12 +274,12 @@ fun HomeScreen(
                                 title = when {
                                     allBooks.isEmpty() -> "书架空空如也"
                                     query.isNotBlank() -> "没有找到匹配的书"
-                                    else -> "这个分类还是空的"
+                                    else -> "书架里暂时没有书"
                                 },
                                 subtitle = when {
                                     allBooks.isEmpty() -> "点「书架」页右上角 + 导入你的漫画或小说文件夹"
-                                    query.isNotBlank() -> "试试其他关键词，或切换分类"
-                                    else -> "在封面三点菜单选择分组，或长按拖到上方分类"
+                                    query.isNotBlank() -> "试试其他书名关键词"
+                                    else -> "在封面三点菜单转移书籍，或长按拖到上方分组"
                                 },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -385,7 +304,7 @@ fun HomeScreen(
                     )
                 }
             }
-            // —— 右下角「开始阅读」：播放键 + 悬浮胶囊菜单（作用于当前所选分类）——
+            // —— 右下角「开始阅读」：当前书架动作使用搜索结果作为范围 ——
             QuickReadMenuOverlay(
                 open = readMenuOpen,
                 onToggle = { readMenuOpen = !readMenuOpen },
@@ -416,8 +335,7 @@ fun HomeScreen(
                 TextButton(
                     onClick = {
                         scope.launch {
-                            val id = repo.addGroup(name)
-                            activeCategory = "group:$id"
+                            repo.addGroup(name)
                             showAddGroup = false
                         }
                     },
@@ -722,29 +640,3 @@ private fun readProgress(book: BookEntity): Int =
     if (book.totalPages > 0 && book.currentPage > 0) {
         (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
     } else 0
-
-@Composable
-private fun HomeCategoryChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(999.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onSurfaceVariant,
-        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}

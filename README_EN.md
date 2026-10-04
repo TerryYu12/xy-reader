@@ -25,6 +25,10 @@
   - Google Drive — OAuth authorization (read-only scope); ZIP / 7Z / TAR are streamed page-by-page on demand, RAR / PDF are downloaded to cache on first open;
 - **Organization**: groups, favorites, reading history, and bookmarks in one place;
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
+- **Book cards**: three columns up to 1120dp wide and four above; each cover shows an integer progress badge, including `0%` for unread books;
+- **Shelf layouts**: switch between the wooden cabinet and grid views; the choice is saved;
+- **Wide-screen navigation**: a collapsible side rail appears at 800dp and wider, while the reader uses the full width; phones keep the Home / Shelf bottom bar;
+- **Appearance**: Settings offers eight accent colors and System / Light / Dark theme modes;
 - Book detail page: table of contents, page count, and reading progress at a glance.
 
 ### Reader
@@ -51,7 +55,7 @@
 Get the latest `XY-READER-<version>.apk` from the [Releases](https://github.com/TerryYu12/xy-reader/releases) page.
 
 - Requires **Android 8.0 (API 26)** or newer;
-- Released APKs are signed with a debug key (so they can be installed directly). The signature differs from packages built elsewhere, so installing over them requires uninstalling the old version first.
+- APKs on the Releases page use the release signing key. A package signed with a different key cannot update an existing install; uninstall the old copy first, which removes its local app data.
 
 ### Build from source
 
@@ -68,17 +72,19 @@ Requires JDK 17 and the Android SDK (compileSdk 36):
 
 The `outputs/` directory is not tracked (APKs can be rebuilt from source at any time). CI (GitHub Actions) runs tests and builds the APK automatically on every push to `main`; artifacts can be downloaded from the Actions page.
 
+Local Release builds fall back to the debug key when release signing is not configured.
+
 ## Usage guide
 
 ### 1. Import local books
 
-1. Open the **Shelf** tab and tap **+** in the top-right corner to pick the folder that holds your manga / novels (system file picker);
-2. Wait for the scan to finish — books are added to your library automatically;
+1. Open the **Shelf** tab and tap **Add repository** in the top-right corner to open local repository management;
+2. Tap **Add** on that page, then choose a folder in the system picker and scan it into your library;
 3. Repeat with other folders to manage multiple repositories side by side.
 
 ### 2. Start reading
 
-- Tap a cover on the Home or Shelf tab to start reading; the floating **Start reading** menu in the bottom-right corner lets you resume or start over quickly;
+- Tap a cover on the Home or Shelf tab to open its detail page, review the table of contents and progress, then choose to resume or start over; the floating **Start reading** menu also offers quick reading actions;
 - While reading, tap the **center** of the screen to bring up the toolbar: table of contents, bookmarks, brightness, typography, copy text, etc.;
 - In left-right mode, tap the **sides** of the screen to turn pages (can be disabled in settings); double-tap or pinch to zoom on manga pages.
 
@@ -92,14 +98,14 @@ Open from the reading toolbar, or go to **Settings → Reading configuration**. 
 
 ### 4. Add a WebDAV repository
 
-1. Go to **Settings → Remote repositories** and tap **+**;
+1. Go to **Settings → Remote repositories** and tap the in-page **Add WebDAV configuration** button (an empty list shows **Add WebDAV**);
 2. Enter the server address, username and password. For example, Nutstore (坚果云) uses `https://dav.jianguoyun.com/dav/` — the password must be an **app password** (Nutstore: Account info → Security options → Add app password), not your login password. Alist, InfiniCLOUD and similar services work the same way;
 3. Tap **Test connection**; once it succeeds, save and tap **Scan** to bring cloud books into your library.
 
 ### 5. Add a Google Drive repository
 
 1. Follow [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md) to create your own OAuth client (desktop app type; takes about 10 minutes, one time only) in your Google Cloud console;
-2. Go to **Settings → Google Drive (beta)**, tap **+** and fill in a name, Client ID and Client Secret (optionally a target folder ID; leave empty to scan all of My Drive);
+2. Go to **Settings → Google Drive (beta)** and tap the in-page **Add Google Drive account** button (an empty list shows **Add account**); fill in a name, Client ID and Client Secret (optionally a target folder ID; leave empty to scan all of My Drive);
 3. Tap **Authorize and save**, complete authorization in the browser (read-only scope only), then tap **Scan** back in the app.
 
 ### 6. Open from other apps (Open with / Share)

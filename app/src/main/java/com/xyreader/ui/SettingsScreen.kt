@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +118,11 @@ fun SettingsScreen(
                     tailText = LocalThemeAccent.current.label,
                     showChevron = true,
                     onClick = { showAccentPicker = true },
+                )
+                RowDivider()
+                ThemeModeChoiceRow(
+                    selected = LocalThemeMode.current,
+                    onSelect = LocalSetThemeMode.current,
                 )
             }
 
@@ -235,6 +241,59 @@ fun SettingsScreen(
 
     if (showAccentPicker) {
         AccentPickerDialog(onDismiss = { showAccentPicker = false })
+    }
+}
+
+@Composable
+private fun ThemeModeChoiceRow(
+    selected: ThemeMode,
+    onSelect: (ThemeMode) -> Unit,
+) {
+    val labels = listOf(
+        ThemeMode.SYSTEM to "跟随系统",
+        ThemeMode.LIGHT to "浅色",
+        ThemeMode.DARK to "深色",
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text(
+            "主题模式",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            labels.forEach { (mode, label) ->
+                val isSelected = mode == selected
+                Surface(
+                    onClick = { onSelect(mode) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                    border = if (isSelected) {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                    } else null,
+                ) {
+                    Text(
+                        label,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 5.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
     }
 }
 

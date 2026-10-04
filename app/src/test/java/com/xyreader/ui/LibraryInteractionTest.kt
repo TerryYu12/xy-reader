@@ -3,12 +3,15 @@ package com.xyreader.ui
 import android.app.Application
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
@@ -99,6 +102,35 @@ class LibraryInteractionTest {
             assertEquals(1, favorites)
             assertEquals(0, opens)
         }
+    }
+
+    @Test fun bookCardsShowIntegerProgressOnTheCoverIncludingZeroForUnreadBooks() {
+        val readBook = book.copy(id = 8, title = "已读书", totalPages = 100, currentPage = 61)
+        val unreadBook = book.copy(id = 9, title = "未读书", totalPages = 0, currentPage = 0)
+        compose.setContent {
+            ArkTheme {
+                androidx.compose.foundation.layout.Column {
+                    Box(Modifier.width(150.dp)) {
+                        BookCard(readBook, emptyList(), {}, {}, {}, {})
+                    }
+                    Box(Modifier.width(150.dp)) {
+                        BookCard(unreadBook, emptyList(), {}, {}, {}, {})
+                    }
+                }
+            }
+        }
+
+        compose.onNodeWithText("61%", substring = false, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("0%", substring = false, useUnmergedTree = true).assertIsDisplayed()
+        val cover = compose.onNodeWithContentDescription("已读书").fetchSemanticsNode().boundsInRoot
+        val badge = compose.onNodeWithText("61%", substring = false, useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "百分比徽标应位于封面右下",
+            badge.center.x > cover.center.x && badge.bottom <= cover.bottom && badge.right <= cover.right,
+        )
+        compose.onNodeWithText("61% 已读").assertDoesNotExist()
+        compose.onNodeWithText("未分组").assertDoesNotExist()
     }
 
     @Test fun deletionRequiresConfirmationAndCancelKeepsBook() {
@@ -194,5 +226,104 @@ class LibraryInteractionTest {
             up()
         }
         compose.runOnIdle { assertEquals(listOf(8L, 7L), result) }
+    }
+
+    @Test fun longPressDragMovesBookToUngroupedTarget() {
+        val dragState = BookGridDragState()
+        var moved: Pair<Long, Long?>? = null
+        compose.setContent {
+            ArkTheme {
+                Box(Modifier.width(320.dp).height(600.dp).testTag("ungrouped-grid")) {
+                    BookGrid(
+                        books = listOf(book),
+                        onOpenBook = {},
+                        onToggleFavorite = {},
+                        onDeleteBook = {},
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        onMoveToGroup = { dragged, groupId -> moved = dragged.id to groupId },
+                        dropTargets = listOf(BookDropTarget("test-ungrouped", null, "未分组")),
+                        dragState = dragState,
+                    )
+                    // Use the production drop chip in a stable slot to measure its target before dragging.
+                    Box(Modifier.align(Alignment.TopCenter)) {
+                        BookDropTargetChip(
+                            BookDropTarget("test-ungrouped", null, "未分组"),
+                            dragState,
+                        )
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        val grid = compose.onNodeWithTag("ungrouped-grid").fetchSemanticsNode().boundsInRoot
+        val bookBounds = compose.onNodeWithContentDescription(book.title).fetchSemanticsNode().boundsInRoot
+        val target = requireNotNull(dragState.targetBoundsInRoot["test-ungrouped"])
+        val start = bookBounds.center - grid.topLeft
+        val end = target.center - grid.topLeft
+        compose.onNodeWithTag("ungrouped-grid").performTouchInput {
+            down(start)
+            advanceEventTime(700)
+            moveTo(start + Offset(1f, 1f), delayMillis = 16)
+            moveTo(end, delayMillis = 400)
+            up()
+        }
+
+        compose.runOnIdle { assertEquals(book.id to null, moved) }
+    }
+
+    @Test fun phoneBookGridUsesThreeColumns() {
+        val books = (1L..4L).map { id ->
+            book.copy(id = id, title = "书$id")
+        }
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = books,
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(720.dp).testTag("phone-grid"),
+                    contentPadding = PaddingValues(16.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        val firstRow = books.take(3).map { item ->
+            compose.onNodeWithContentDescription(item.title).fetchSemanticsNode().boundsInRoot
+        }
+        val fourth = compose.onNodeWithContentDescription(books[3].title).fetchSemanticsNode().boundsInRoot
+        assertEquals(3, firstRow.map { it.center.x }.distinct().size)
+        assertTrue("第四本应落在下一行", fourth.top > firstRow.first().top)
+    }
+
+    @Test
+    @Config(qualifiers = "w1200dp-h800dp-mdpi")
+    fun wideBookGridUsesFourColumns() {
+        val books = (1L..5L).map { id ->
+            book.copy(id = id, title = "宽屏书$id")
+        }
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = books,
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.fillMaxSize().testTag("wide-grid"),
+                    contentPadding = PaddingValues(16.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        val firstRow = books.take(4).map { item ->
+            compose.onNodeWithContentDescription(item.title).fetchSemanticsNode().boundsInRoot
+        }
+        val fifth = compose.onNodeWithContentDescription(books[4].title).fetchSemanticsNode().boundsInRoot
+        assertEquals(4, firstRow.map { it.center.x }.distinct().size)
+        assertTrue("第五本应落在下一行", fifth.top > firstRow.first().top)
     }
 }

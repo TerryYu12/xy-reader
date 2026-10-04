@@ -34,7 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 远程仓库管理页（设置 → 仓库管理 → 远程仓库管理 beta）：
- * WebDAV 配置列表（每条支持 扫描入库 / 删除配置），右下角 FAB 弹出底部添加表单
+ * 顶部能力说明、WebDAV 配置列表（每条支持 扫描入库 / 删除配置）和列表内添加入口
  * （测试连接 + 保存）。扫描与测试均为 suspend 调用，repository 内部已切 IO，
  * UI 层直接 rememberCoroutineScope + scope.launch。
  */
@@ -106,20 +106,7 @@ fun RemoteReposScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            // 与首页/本地仓库页一致的 primary 色圆角方形 FAB
-            FloatingActionButton(
-                onClick = { showForm = true },
-                shape = RoundedCornerShape(20.dp),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加远程仓库")
-            }
-        },
-    ) { padding ->
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -131,24 +118,36 @@ fun RemoteReposScreen(onBack: () -> Unit) {
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (configs.isEmpty()) {
-                RemoteEmptyState(Modifier.weight(1f))
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    // 能力说明条：流式阅读 vs 下载缓存
-                    item(key = "stream-info") { StreamInfoCard() }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // 能力说明条：流式阅读 vs 下载缓存；空态也保留该说明卡。
+                item(key = "stream-info") { StreamInfoCard() }
+                if (configs.isEmpty()) {
+                    item(key = "empty-state") {
+                        RemoteEmptyState(
+                            modifier = Modifier.fillMaxWidth().height(320.dp),
+                            onAdd = { showForm = true },
+                        )
+                    }
+                } else {
                     items(configs, key = { it.id }) { config ->
                         RemoteRepoCard(
                             config = config,
                             isScanning = config.id in scanningIds,
                             onScan = { startScan(config.id) },
                             onRemove = { pendingRemove = config },
+                        )
+                    }
+                    item(key = "add-webdav") {
+                        RemoteAddAction(
+                            label = "添加 WebDAV 配置",
+                            primary = false,
+                            onClick = { showForm = true },
                         )
                     }
                 }
@@ -208,15 +207,47 @@ fun RemoteReposScreen(onBack: () -> Unit) {
     }
 }
 
-/** 空状态：统一 EmptyState（96dp 图标容器 + 引导文案） */
+/** 空状态：与预览一样在空态内保留实际添加入口。 */
 @Composable
-private fun RemoteEmptyState(modifier: Modifier = Modifier) {
-    EmptyState(
-        icon = Icons.Outlined.CloudOff,
-        title = "还没有远程仓库",
-        subtitle = "点 + 添加坚果云或 Alist 的 WebDAV 地址",
-        modifier = modifier,
-    )
+private fun RemoteEmptyState(modifier: Modifier = Modifier, onAdd: () -> Unit) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        EmptyState(
+            icon = Icons.Outlined.CloudOff,
+            title = "还没有远程仓库",
+            subtitle = "添加坚果云或 Alist 的 WebDAV 地址",
+            modifier = Modifier.weight(1f),
+        )
+        RemoteAddAction(label = "添加 WebDAV", primary = true, onClick = onAdd)
+    }
+}
+
+@Composable
+private fun RemoteAddAction(label: String, primary: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        if (primary) {
+            Button(
+                onClick = onClick,
+                modifier = Modifier.height(44.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(13.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, maxLines = 1)
+            }
+        } else {
+            FilledTonalButton(
+                onClick = onClick,
+                modifier = Modifier.height(44.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(13.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, maxLines = 1)
+            }
+        }
+    }
 }
 
 /** 顶部能力说明条：流式阅读的收益与 RAR/PDF 的缓存策略 */

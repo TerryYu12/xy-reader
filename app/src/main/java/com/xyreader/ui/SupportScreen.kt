@@ -55,65 +55,73 @@ fun SupportScreen(onBack: () -> Unit) {
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            Column(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
-            Spacer(Modifier.height(20.dp))
-            Surface(
-                modifier = Modifier.size(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Outlined.Coffee,
-                        contentDescription = null,
-                        modifier = Modifier.size(26.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Surface(
+                        modifier = Modifier.size(56.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Outlined.Coffee,
+                                contentDescription = null,
+                                modifier = Modifier.size(26.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "谢谢使用 XY reader",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "这是一款完全免费、开源的软件——没有广告，也没有会员和增值服务。\n" +
+                            "如果它帮到了你，欢迎请作者喝杯咖啡。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 23.sp,
+                    )
+                    Spacer(Modifier.height(26.dp))
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        shadowElevation = 2.dp,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.reward_wechat_qr),
+                            contentDescription = "微信收款码",
+                            modifier = Modifier
+                                .padding(10.dp)
+                                .size(232.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "微信扫一扫 · 感谢支持",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "谢谢使用 XY reader",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "这是一款完全免费、开源的软件——没有广告，也没有会员和增值服务。\n" +
-                    "如果它帮到了你，欢迎请作者喝杯咖啡。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                lineHeight = 23.sp,
-            )
-            Spacer(Modifier.height(26.dp))
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color.White,
-                shadowElevation = 2.dp,
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.reward_wechat_qr),
-                    contentDescription = "微信收款码",
-                    modifier = Modifier
-                        .padding(10.dp)
-                        .size(232.dp),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "微信扫一扫 · 感谢支持",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.height(36.dp))
-            }
         }
     }
 }

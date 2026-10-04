@@ -3,6 +3,7 @@ package com.xyreader.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -73,9 +74,37 @@ internal fun DefaultBookCover(
     showFormatBadge: Boolean = true,
 ) {
     val theme = CoverTheme.forTitle(book.title)
-    val pad = if (compact) 8.dp else 13.dp
+    BoxWithConstraints(modifier = modifier.background(Brush.verticalGradient(*theme.stops.toTypedArray()))) {
+        val narrow = maxWidth < 120.dp
+        val veryNarrow = maxWidth < 92.dp
+        val horizontalPad = when {
+            veryNarrow -> 6.dp
+            compact || narrow -> 8.dp
+            else -> 13.dp
+        }
+        val verticalPad = when {
+            veryNarrow -> 6.dp
+            compact || narrow -> 8.dp
+            else -> 13.dp
+        }
+        val symbolSize = when {
+            veryNarrow -> if (compact) 18.sp else 20.sp
+            compact || narrow -> 22.sp
+            else -> 34.sp
+        }
+        val titleSize = when {
+            veryNarrow -> 11.sp
+            compact -> 13.sp
+            narrow -> 12.sp
+            else -> 17.sp
+        }
+        val titleLineHeight = when {
+            veryNarrow -> 13.sp
+            compact -> 16.sp
+            narrow -> 14.sp
+            else -> 20.sp
+        }
 
-    Box(modifier = modifier.background(Brush.verticalGradient(*theme.stops.toTypedArray()))) {
         // 右上装饰圆环（对应 .cover:before 的半透明白描边圆，允许溢出裁切的边缘）
         Box(
             Modifier
@@ -87,7 +116,7 @@ internal fun DefaultBookCover(
         )
 
         Column(
-            Modifier.fillMaxSize().padding(pad),
+            Modifier.fillMaxSize().padding(horizontal = horizontalPad, vertical = verticalPad),
         ) {
             if (!compact) {
                 Text(
@@ -104,26 +133,29 @@ internal fun DefaultBookCover(
             Text(
                 text = theme.symbol,
                 fontFamily = FontFamily.Serif,
-                fontSize = if (compact) 22.sp else 34.sp,
+                fontSize = symbolSize,
                 color = Color.White.copy(alpha = 0.85f),
                 maxLines = 1,
             )
-            Spacer(Modifier.height(if (compact) 4.dp else 9.dp))
+            Spacer(Modifier.height(if (compact || narrow) 4.dp else 9.dp))
             Text(
                 text = book.title,
                 fontFamily = FontFamily.Serif,
-                fontSize = if (compact) 13.sp else 17.sp,
-                lineHeight = if (compact) 16.sp else 20.sp,
+                fontSize = titleSize,
+                lineHeight = titleLineHeight,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.4.sp,
+                letterSpacing = if (narrow) 0.1.sp else 0.4.sp,
                 color = Color.White,
-                maxLines = 3,
+                maxLines = if (veryNarrow) 2 else 3,
                 overflow = TextOverflow.Ellipsis,
             )
             // 格式角标按设计稿 .cover 语义参与流内排版（最后一项），避免与标题在矮封面上重叠
             if (showFormatBadge) {
                 Spacer(Modifier.height(if (compact) 7.dp else 9.dp))
                 CoverFormatBadge(format = book.format)
+            } else {
+                // 卡片在封面外叠加格式与进度角标，默认封面需为这些角标保留底边空间。
+                Spacer(Modifier.height(if (compact) 24.dp else 28.dp))
             }
         }
     }

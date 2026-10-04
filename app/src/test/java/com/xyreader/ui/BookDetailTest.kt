@@ -3,8 +3,11 @@ package com.xyreader.ui
 import android.app.Application
 import android.net.Uri
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.xyreader.core.BookEntity
 import com.xyreader.core.Chapter
@@ -140,6 +143,14 @@ class BookDetailTest {
         compose.waitUntil(timeoutMillis = 30_000) {
             compose.onAllNodesWithTag("chapter_1").fetchSemanticsNodes().isNotEmpty()
         }
+        val coverBounds = compose.onNodeWithContentDescription("点击测试").fetchSemanticsNode().boundsInRoot
+        val titleBounds = compose.onAllNodesWithText("点击测试", substring = false).fetchSemanticsNodes()
+            .map { it.boundsInRoot }
+            .first { it.left >= coverBounds.right }
+        assertTrue("手机详情封面应在书名左侧", coverBounds.right <= titleBounds.left)
+        val addedLabel = compose.onNodeWithText("添加", substring = false).fetchSemanticsNode().boundsInRoot
+        val continueButton = compose.onNodeWithText("继续阅读", substring = false).fetchSemanticsNode().boundsInRoot
+        assertTrue("添加/阅读统计应在动作按钮之前", addedLabel.top < continueButton.top)
         compose.onNodeWithTag("chapter_1").performClick()
         assertEquals("点击第二话应把其起始页交给阅读器", listOf(2), opened)
     }

@@ -1,5 +1,7 @@
 package com.xyreader.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,14 +41,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.xyreader.core.BookGroupEntity
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -57,14 +67,33 @@ import kotlinx.coroutines.launch
 fun GroupManageScreen(onBack: () -> Unit) {
     val repo = rememberLibraryRepository()
     val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
     val books by repo.books.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var showAdd by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<BookGroupEntity?>(null) }
     var deleting by remember { mutableStateOf<BookGroupEntity?>(null) }
+    var managingCover by remember { mutableStateOf<BookGroupEntity?>(null) }
+    var pendingCoverGroupId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val groupId = pendingCoverGroupId
+        pendingCoverGroupId = null
+        if (uri != null && groupId != null) {
+            scope.launch {
+                val imported = try {
+                    repo.importGroupCover(groupId, uri)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                snackbar.showSnackbar(if (imported) "分组封面已更新" else "分组封面导入失败")
+            }
+        }
+    }
 
-    Scaffold { padding ->
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -107,6 +136,7 @@ fun GroupManageScreen(onBack: () -> Unit) {
                             GroupRow(
                                 group = group,
                                 bookCount = books.count { it.groupId == group.id },
+                                onManageCover = { managingCover = group },
                                 onRename = { renaming = group },
                                 onDelete = { deleting = group },
                             )
@@ -233,6 +263,72 @@ fun GroupManageScreen(onBack: () -> Unit) {
             },
         )
     }
+
+    managingCover?.let { target ->
+        val group = groups.firstOrNull { it.id == target.id } ?: target
+        AlertDialog(
+            onDismissRequest = { managingCover = null },
+            title = { Text("分组封面") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (group.coverPath != null) {
+                        AsyncImage(
+                            model = File(group.coverPath),
+                            contentDescription = "${group.name}分组封面",
+                            modifier = Modifier
+                                .size(104.dp)
+                                .clip(RoundedCornerShape(14.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Text(
+                            "当前封面",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            "尚未设置封面",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingCoverGroupId = group.id
+                    managingCover = null
+                    coverPicker.launch("image/*")
+                }) {
+                    Text(if (group.coverPath == null) "选择图片" else "更换图片")
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (group.coverPath != null) {
+                        TextButton(onClick = {
+                            managingCover = null
+                            scope.launch {
+                                val cleared = try {
+                                    repo.setGroupCover(group.id, null)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    false
+                                }
+                                snackbar.showSnackbar(if (cleared) "分组封面已清除" else "分组封面清除失败")
+                            }
+                        }) { Text("清除封面", color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(onClick = { managingCover = null }) { Text("取消") }
+                }
+            },
+        )
+    }
 }
 
 /**
@@ -286,6 +382,7 @@ private fun SubpageHead(title: String, subtitle: String, onBack: () -> Unit) {
 private fun GroupRow(
     group: BookGroupEntity,
     bookCount: Int,
+    onManageCover: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -298,18 +395,29 @@ private fun GroupRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Surface(
-            modifier = Modifier.size(38.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = purpleTint.copy(alpha = 0.12f),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Outlined.FolderOpen,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = purpleTint,
-                )
+        if (group.coverPath != null) {
+            AsyncImage(
+                model = File(group.coverPath),
+                contentDescription = "${group.name}分组封面",
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = purpleTint.copy(alpha = 0.12f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Outlined.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = purpleTint,
+                    )
+                }
             }
         }
         Column(Modifier.weight(1f)) {
@@ -324,6 +432,13 @@ private fun GroupRow(
             Text(
                 "$bookCount 本书",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onManageCover) {
+            Text(
+                "封面",
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

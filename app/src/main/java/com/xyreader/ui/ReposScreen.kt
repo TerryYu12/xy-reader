@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,7 +33,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,8 +71,8 @@ private data class PendingScanReport(
 
 /**
  * 本地仓库管理页（设置 → 仓库管理，对照 MH-ARK 原版重做）：
- * 仓库卡片列表（名称 + 美化地址 + 启用开关 + 刷新按钮 + 三点菜单），右下角 FAB 走
- * SAF 目录选择器添加仓库（与首页同一扫描链路）。卡片"刷新仓库"完成后弹出
+ * 顶部数量与添加入口，下方是仓库卡片列表（名称 + 美化地址 + 启用开关 + 刷新按钮 + 三点菜单）。
+ * 添加仓库仍走 SAF 目录选择器和首页同一扫描链路。卡片"刷新仓库"完成后弹出
  * 扫描报告弹层（用时 / 新增 / 更新 / 删除四格统计）；三点菜单提供 配置仓库 与
  * 删除仓库（删除会连带移除仓库内已入库的书）。
  */
@@ -85,7 +85,7 @@ fun ReposScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    // FAB 添加仓库链路：完成后 Snackbar 提示新增数（报告详情在各卡片"刷新仓库"里查看）
+    // 顶部入口添加仓库：完成后 Snackbar 提示新增数（报告详情在各卡片"刷新仓库"里查看）
     val scan = rememberRepoScanHandle(repo) { report ->
         scope.launch { snackbar.showSnackbar("新增 ${report.added} 本") }
     }
@@ -118,41 +118,6 @@ fun ReposScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            if (scan.isScanning) {
-                // 扫描中：FAB 变为加载态
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "扫描中",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            } else {
-                FloatingActionButton(
-                    onClick = scan::launch,
-                    shape = RoundedCornerShape(20.dp),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "添加仓库")
-                }
-            }
-        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -164,6 +129,12 @@ fun ReposScreen(
                 subtitle = "扫描设备文件夹，把漫画入库",
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            LocalRepoHero(
+                count = localRepos.size,
+                scanning = scan.isScanning,
+                onAdd = scan::launch,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             when {
                 localRepos.isEmpty() && !scan.isScanning -> EmptyState(
@@ -227,6 +198,88 @@ fun ReposScreen(
             report = pending.report,
             onDismiss = { pendingReport = null },
         )
+    }
+}
+
+@Composable
+private fun LocalRepoHero(
+    count: Int,
+    scanning: Boolean,
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(19.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Outlined.FolderOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "$count 个仓库",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "可配置封面约定与新书默认分组。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (scanning) {
+                Row(
+                    modifier = Modifier.heightIn(min = 44.dp).padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(17.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "扫描中",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Button(
+                    onClick = onAdd,
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(13.dp),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("添加", maxLines = 1)
+                }
+            }
+        }
     }
 }
 
@@ -527,7 +580,7 @@ private fun formatScanDuration(ms: Long): String =
     if (ms < 1000) "$ms ms" else String.format(Locale.getDefault(), "%.1f s", ms / 1000.0)
 
 /** 仓库地址美化：取 SAF tree URI 尾段并解码（content://…/tree/primary%3AComics -> primary:Comics） */
-private fun prettyRepoAddress(uriString: String): String = runCatching {
+internal fun prettyRepoAddress(uriString: String): String = runCatching {
     val raw = Uri.parse(uriString).lastPathSegment ?: return@runCatching uriString
     Uri.decode(raw).removePrefix("tree/").ifBlank { uriString }
 }.getOrDefault(uriString)

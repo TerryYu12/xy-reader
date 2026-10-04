@@ -9,18 +9,20 @@ import com.xyreader.core.BookEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** 首页布局单独存放；同一文件的 DataStore 委托只在顶层定义一次。 */
+/** 首页排序与书架布局单独存放；DataStore 委托只在顶层定义一次。 */
 private val Context.libraryLayoutDataStore by preferencesDataStore(name = "library_layout")
 
 private val KEY_HOME_ORDER = stringPreferencesKey("home_book_order")
 private val KEY_HOME_MANUAL_ORDER = booleanPreferencesKey("home_manual_order")
+private val KEY_SHELF_CABINET_VIEW = booleanPreferencesKey("shelf_cabinet_view")
 
 data class LibraryLayout(
     val homeBookOrder: List<Long> = emptyList(),
     val homeManualOrder: Boolean = false,
+    val shelfCabinetView: Boolean = true,
 )
 
-/** 持久化首页布局，不改 Room 记录或数据库迁移。 */
+/** 持久化首页排序和书架视图选择，不改 Room 记录或数据库迁移。 */
 class LibraryLayoutStore(context: Context) {
     private val dataStore = context.applicationContext.libraryLayoutDataStore
 
@@ -32,6 +34,7 @@ class LibraryLayoutStore(context: Context) {
                 .mapNotNull { it.toLongOrNull() }
                 .distinct(),
             homeManualOrder = prefs[KEY_HOME_MANUAL_ORDER] ?: false,
+            shelfCabinetView = prefs[KEY_SHELF_CABINET_VIEW] ?: true,
         )
     }
 
@@ -44,6 +47,10 @@ class LibraryLayoutStore(context: Context) {
 
     suspend fun useAutomaticHomeOrder() {
         dataStore.edit { prefs -> prefs[KEY_HOME_MANUAL_ORDER] = false }
+    }
+
+    suspend fun setShelfCabinetView(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[KEY_SHELF_CABINET_VIEW] = enabled }
     }
 }
 

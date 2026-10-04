@@ -34,7 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Google Drive（Google One）账号管理页（设置 → 仓库管理 → Google Drive beta）：
- * OAuth 账号列表（每条支持 扫描入库 / 删除授权），右下角 FAB 弹出底部添加表单
+ * OAuth 说明与账号列表（每条支持 扫描入库 / 删除授权），列表内添加入口弹出底部表单
  * （名称 / Client ID / Client Secret / 目标文件夹 ID → 授权并保存）。
  *
  * 扫描与授权均为 suspend 调用：repository 内部已切 IO，UI 层直接页面级
@@ -134,20 +134,7 @@ fun GdriveScreen(onBack: () -> Unit) {
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = {
-            // 与首页/本地仓库页一致的 primary 色圆角方形 FAB
-            FloatingActionButton(
-                onClick = { showForm = true },
-                shape = RoundedCornerShape(20.dp),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "添加 Google Drive 账号")
-            }
-        },
-    ) { padding ->
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -159,24 +146,36 @@ fun GdriveScreen(onBack: () -> Unit) {
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (accounts.isEmpty()) {
-                GdriveEmptyState(Modifier.weight(1f))
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    // 顶部说明条：能力、网络要求与 OAuth 客户端创建指引
-                    item(key = "gdrive-info") { GdriveInfoCard() }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // 顶部说明条：能力、网络要求与 OAuth 客户端创建指引；空态也保留说明卡。
+                item(key = "gdrive-info") { GdriveInfoCard() }
+                if (accounts.isEmpty()) {
+                    item(key = "empty-state") {
+                        GdriveEmptyState(
+                            modifier = Modifier.fillMaxWidth().height(320.dp),
+                            onAdd = { showForm = true },
+                        )
+                    }
+                } else {
                     items(accounts, key = { it.id }) { account ->
                         GdriveAccountCard(
                             account = account,
                             isScanning = account.id in scanningIds,
                             onScan = { startScan(account.id) },
                             onRemove = { pendingRemove = account },
+                        )
+                    }
+                    item(key = "add-account") {
+                        GdriveAddAction(
+                            label = "添加 Google Drive 账号",
+                            primary = false,
+                            onClick = { showForm = true },
                         )
                     }
                 }
@@ -218,15 +217,47 @@ fun GdriveScreen(onBack: () -> Unit) {
     }
 }
 
-/** 空状态：统一 EmptyState（96dp 图标容器 + 引导文案） */
+/** 空状态：与预览一样在空态内保留实际添加入口。 */
 @Composable
-private fun GdriveEmptyState(modifier: Modifier = Modifier) {
-    EmptyState(
-        icon = Icons.Outlined.CloudOff,
-        title = "还没有 Google Drive 账号",
-        subtitle = "点 + 按 GOOGLE_DRIVE_SETUP.md 指引添加",
-        modifier = modifier,
-    )
+private fun GdriveEmptyState(modifier: Modifier = Modifier, onAdd: () -> Unit) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        EmptyState(
+            icon = Icons.Outlined.CloudOff,
+            title = "还没有 Google Drive 账号",
+            subtitle = "需联网完成 Google OAuth 授权，并填写客户端信息",
+            modifier = Modifier.weight(1f),
+        )
+        GdriveAddAction(label = "添加账号", primary = true, onClick = onAdd)
+    }
+}
+
+@Composable
+private fun GdriveAddAction(label: String, primary: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        if (primary) {
+            Button(
+                onClick = onClick,
+                modifier = Modifier.height(44.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(13.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, maxLines = 1)
+            }
+        } else {
+            FilledTonalButton(
+                onClick = onClick,
+                modifier = Modifier.height(44.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(13.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, maxLines = 1)
+            }
+        }
+    }
 }
 
 /** 顶部说明条：流式阅读能力、网络要求与 OAuth 客户端创建指引（文案较长，图标顶对齐） */
@@ -262,8 +293,7 @@ private fun GdriveInfoCard() {
             Text(
                 "授权后可扫描 Google Drive（Google One）中的漫画文件夹；" +
                     "ZIP/7Z/TAR 翻页即时加载不占空间，RAR/PDF 首次打开自动下载到缓存。" +
-                    "需能访问 Google（如代理）。" +
-                    "首次使用请按项目根目录 GOOGLE_DRIVE_SETUP.md 创建 OAuth 客户端",
+                    "添加账号需联网完成 Google OAuth 授权，并填写客户端 ID 和密钥；目标文件夹 ID 可选。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -474,8 +504,7 @@ private fun AddGdriveSheet(
                 }
             }
             Text(
-                "Client ID / Client Secret 来自 Google Cloud 控制台创建的 OAuth 客户端" +
-                    "（桌面应用类型），步骤见项目根目录 GOOGLE_DRIVE_SETUP.md",
+                "Client ID / Client Secret 来自 Google Cloud 控制台创建的桌面应用 OAuth 客户端。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
