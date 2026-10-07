@@ -55,6 +55,10 @@ interface GroupDao {
     @Query("UPDATE books SET groupId = :groupId WHERE id = :bookId")
     suspend fun moveBookToGroup(bookId: Long, groupId: Long?)
 
+    /** 批量把书移入分组；groupId 传 null 表示移出分组。id 个数受 SQLite 绑定变量上限约束，调用方需先分批 */
+    @Query("UPDATE books SET groupId = :groupId WHERE id IN (:bookIds)")
+    suspend fun moveBooksToGroup(bookIds: List<Long>, groupId: Long?)
+
     /** 删除分组前把该组所有书的 groupId 置空（书自动回到未分组） */
     @Query("UPDATE books SET groupId = NULL WHERE groupId = :id")
     suspend fun clearBooksOfGroup(id: Long)

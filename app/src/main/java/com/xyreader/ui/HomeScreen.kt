@@ -85,7 +85,10 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-/** 首页：品牌顶栏、继续阅读、紧凑分组条与封面网格；长按可排序、分组或删除。 */
+/**
+ * 首页：品牌顶栏、继续阅读、紧凑分组条与封面网格；
+ * 长按封面不动松手进入多选（批量转移 / 收藏 / 清除记录 / 删除），长按并拖动可排序、分组或删除。
+ */
 @Composable
 fun HomeScreen(
     onOpenBook: (Long) -> Unit,
@@ -147,6 +150,8 @@ fun HomeScreen(
     }
 
     val dragState = remember { BookGridDragState() }
+    // 多选状态由首页持有，以便多选时隐藏右下角的「开始阅读」悬浮按钮
+    val selection = remember { BookSelectionState() }
     val dropTargets = remember(groups) {
         listOf(BookDropTarget("home-ungrouped", null, "未分组")) + groups.map { group ->
             BookDropTarget("home-folder-${group.id}", group.id, group.name)
@@ -279,7 +284,7 @@ fun HomeScreen(
                                 subtitle = when {
                                     allBooks.isEmpty() -> "点「书架」页右上角 + 导入你的漫画或小说文件夹"
                                     query.isNotBlank() -> "试试其他书名关键词"
-                                    else -> "在封面三点菜单转移书籍，或长按拖到上方分组"
+                                    else -> "在封面三点菜单转移书籍，长按封面可多选，或拖到上方分组"
                                 },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -301,16 +306,19 @@ fun HomeScreen(
                         dropTargets = dropTargets,
                         dragState = dragState,
                         onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
+                        selectionState = selection,
                     )
                 }
             }
-            // —— 右下角「开始阅读」：当前书架动作使用搜索结果作为范围 ——
-            QuickReadMenuOverlay(
-                open = readMenuOpen,
-                onToggle = { readMenuOpen = !readMenuOpen },
-                onDismiss = { readMenuOpen = false },
-                onPick = onQuickRead,
-            )
+            // —— 右下角「开始阅读」：当前书架动作使用搜索结果作为范围；多选时让位给底部批量操作栏 ——
+            if (!selection.active) {
+                QuickReadMenuOverlay(
+                    open = readMenuOpen,
+                    onToggle = { readMenuOpen = !readMenuOpen },
+                    onDismiss = { readMenuOpen = false },
+                    onPick = onQuickRead,
+                )
+            }
         }
     }
 
