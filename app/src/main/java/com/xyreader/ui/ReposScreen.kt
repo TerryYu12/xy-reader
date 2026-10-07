@@ -243,7 +243,7 @@ private fun LocalRepoHero(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "可配置封面约定与新书默认分组。",
+                    "可配置封面约定、新书默认分组与 PDF 合并。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,

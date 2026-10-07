@@ -1,13 +1,13 @@
 package com.xyreader.archive
 
 import android.content.Context
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.PageSource
 import com.xyreader.core.decodeToImageBitmap
 import com.xyreader.data.AppGraph
 import com.xyreader.data.GoogleDriveClient
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -98,7 +98,7 @@ class MobiPageSource private constructor(
     override fun close() = onFirstClose {
         // 通道由本类管理生命周期（构造传入：本地 FileChannel / 远程 HttpRangeChannel）
         runCatching { channel.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 MOBI 通道异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 MOBI 通道异常", it) }
     }
 
     companion object {
@@ -187,7 +187,7 @@ class MobiPageSource private constructor(
             } catch (t: Throwable) {
                 // 打开中途失败：回收通道，绝不泄漏连接/文件句柄
                 runCatching { channel.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 MOBI 通道异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 MOBI 通道异常", it) }
                 throw t
             }
         }

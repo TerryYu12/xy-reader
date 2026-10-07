@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.xyreader.feedback.AppLog
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -32,6 +33,9 @@ private const val LATEST_RELEASE_URL =
 
 /** 统一 UA：GitHub API 要求带 User-Agent，否则返回 403 */
 private const val UPDATE_USER_AGENT = "XY-Reader-Updater"
+
+/** 日志标签 */
+private const val TAG = "UpdateChecker"
 
 /** FileProvider authority，必须与 AndroidManifest 中 provider 的 android:authorities 完全一致 */
 const val UPDATE_FILE_PROVIDER_AUTHORITY = "com.xyreader.fileprovider"
@@ -99,6 +103,7 @@ suspend fun checkForUpdate(currentVersion: String): Result<UpdateInfo?> = withCo
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        AppLog.w(TAG, "检查更新失败", e)
         Result.failure(e)
     }
 }
@@ -250,6 +255,7 @@ suspend fun downloadApk(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        AppLog.w(TAG, "下载更新包失败", e)
         Result.failure(e)
     } finally {
         temporaryFile?.let { if (it.exists()) it.delete() }

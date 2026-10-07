@@ -7,11 +7,13 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.documentfile.provider.DocumentFile
+import com.xyreader.archive.PageSources
 import com.xyreader.core.ArchiveFactory
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.LibraryRepository.ScanReport
 import com.xyreader.core.LocalRepoEntity
+import com.xyreader.feedback.AppLog
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.CancellationException
@@ -33,7 +35,21 @@ internal fun prettyTreeName(uriString: String): String = runCatching {
 }.getOrDefault(uriString)
 
 /**
- * SAF 目录树扫描器：把树内的压缩包文件与图片目录作为书籍入库，并逐本补齐页数与封面。
+ * 规则 c 的判定：一个文件夹直接子项里的 PDF 是否合并成一本「PDF 合集」（纯函数，便于单测）。
+ * - [depth]：文件夹在仓库内的层级，仓库根为 0；根目录直接放的 PDF 不合并，仍各自成书；
+ * - [enabled]：仓库开关 [LocalRepoEntity.mergeFolderPdfs]；
+ * - [pdfCount]：直接子项里非隐藏 PDF 的个数，至少 2 个才合并，只有 1 个时仍是普通 PDF 书。
+ */
+internal fun shouldMergeFolderPdfs(depth: Int, enabled: Boolean, pdfCount: Int): Boolean =
+    enabled && depth > 0 && pdfCount >= 2
+
+/**
+ * SAF 目录树扫描器：把树内的压缩包文件、图片目录与「PDF 合集」文件夹作为书籍入库，并逐本补齐页数与封面。
+ * 逐目录的入库规则（见 [walk]）：
+ * - a：可入库的压缩包/文档文件直接成书；
+ * - b：直接子项图片数达标且不含压缩包/支持文件的目录，整个目录成一本图片目录书；
+ * - c：子文件夹（非仓库根）直接包含 ≥2 个 PDF 且仓库开启 [LocalRepoEntity.mergeFolderPdfs] 时，
+ *   整个文件夹成一本「PDF 合集」（每个 PDF 一章），这些 PDF 不再各自成书；其余格式不参与合并。
  * 两个入口：
  * - [scanRepo] 新主入口：以本地仓库为单位扫描 + 对账（新增/更新/移除）；
  * - [scan] 旧入口：兼容早期「按目录树增量入库」的调用链，内部派生为仓库扫描。
@@ -105,7 +121,10 @@ class LibraryScanner(
         val start = System.currentTimeMillis()
         val treeUri = Uri.parse(repo.uri)
         val root = DocumentFile.fromTreeUri(context, treeUri)
-            ?: return@withContext ScanReport(0, 0, 0, System.currentTimeMillis() - start)
+        if (root == null) {
+            AppLog.w(TAG, "仓库根目录不可达，跳过扫描 repoId=${repo.id}")
+            return@withContext ScanReport(0, 0, 0, System.currentTimeMillis() - start)
+        }
 
         // 基准集合：本仓库已入库的书（uri → 记录）
         val baseline = repoDao.getBooksOfRepo(repo.id).associateBy { it.uri }
@@ -178,12 +197,15 @@ class LibraryScanner(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // 单本封面/页数失败不阻断扫描
+                AppLog.w(TAG, "封面/页数生成异常 bookId=${book.id} format=${book.format}", e)
             }
         }
 
-        ScanReport(added, updated, removed, System.currentTimeMillis() - start)
+        val elapsed = System.currentTimeMillis() - start
+        AppLog.i(TAG, "仓库扫描结束 repoId=${repo.id} 新增=$added 更新=$updated 移除=$removed 耗时=${elapsed}ms")
+        ScanReport(added, updated, removed, elapsed)
     }
 
     // ---------- 封面 / 元数据 ----------
@@ -238,7 +260,10 @@ class LibraryScanner(
                 source.close()
             }
         } catch (e: Exception) {
-            // 封面/页数失败不阻断入库
+            // 封面/页数失败不阻断入库；取消不算失败，不记日志
+            if (e !is CancellationException) {
+                AppLog.w(TAG, "封面/页数生成失败 bookId=${book.id} format=${book.format}", e)
+            }
             null
         }
     }
@@ -295,17 +320,33 @@ class LibraryScanner(
         val subDirs = mutableListOf<DocumentFile>()
         var hasSupportedFile = false
         var imageCount = 0
+        // 非隐藏 PDF（文件 + 文件名）：个数要遍历完才知道，是否合并留给下方规则 c 判定
+        val pdfs = mutableListOf<Pair<DocumentFile, String>>()
 
         for (child in children) {
             val name = child.name ?: continue
             if (child.isDirectory) {
                 subDirs += child
             } else if (BookFormat.isSupportedFile(name)) {
-                // 规则 a：可入库的压缩包/文档文件直接成书
                 hasSupportedFile = true
-                discoverFileBook(child, name, dir, repo, discovered)
+                if (BookFormat.fromFileName(name) == BookFormat.PDF && !PageSources.isExcludedEntry(name)) {
+                    pdfs += child to name
+                } else {
+                    // 规则 a：其余可入库的压缩包/文档文件（含隐藏 PDF）直接成书
+                    discoverFileBook(child, name, dir, repo, discovered)
+                }
             } else if (isImageFile(name)) {
                 imageCount++
+            }
+        }
+
+        // 规则 c：非根目录且 PDF ≥ 2 个（并且仓库开关打开）时整个文件夹合成一本「PDF 合集」；
+        // 否则（仓库根 / 只有 1 个 / 开关关闭）每个 PDF 各自成书，与规则 a 一致
+        if (shouldMergeFolderPdfs(depth, repo.mergeFolderPdfs, pdfs.size)) {
+            discoverPdfFolderBook(dir, treeUri, pdfs.map { it.first }, children.toList(), repo, discovered)
+        } else {
+            for ((pdf, pdfName) in pdfs) {
+                discoverFileBook(pdf, pdfName, dir, repo, discovered)
             }
         }
 
@@ -356,16 +397,11 @@ class LibraryScanner(
         repo: LocalRepoEntity,
         discovered: MutableList<Discovered>,
     ) {
-        // 目录书的 uri 用 tree + documentId 构造的 document URI，便于后续 ArchiveFactory 直接访问
-        val uriString = runCatching {
-            DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getDocumentId(dir.uri)).toString()
-        }.getOrNull() ?: dir.uri.toString()
-
         val conventionCoverUri = findConventionCover(repo.coverFileName, children)
 
         val entity = BookEntity(
             title = dir.name ?: "",
-            uri = uriString,
+            uri = folderDocumentUri(dir, treeUri),
             parentUri = null,
             isDirectory = true,
             format = BookFormat.DIRECTORY.name,
@@ -376,6 +412,43 @@ class LibraryScanner(
         )
         discovered += Discovered(entity, conventionCoverUri)
     }
+
+    /**
+     * 规则 c：同文件夹多个 PDF 整夹发现入库为一本 PDF_FOLDER 书（每个 PDF 一章）。
+     * 书名取文件夹名，uri 与图片目录书同形，size 为各 PDF 大小之和；
+     * 封面文件名约定同样生效：文件夹里命中约定的图片优先于第一个 PDF 的首页作封面。
+     */
+    private fun discoverPdfFolderBook(
+        dir: DocumentFile,
+        treeUri: Uri,
+        pdfFiles: List<DocumentFile>,
+        children: List<DocumentFile>,
+        repo: LocalRepoEntity,
+        discovered: MutableList<Discovered>,
+    ) {
+        val conventionCoverUri = findConventionCover(repo.coverFileName, children)
+
+        val entity = BookEntity(
+            title = dir.name ?: "",
+            uri = folderDocumentUri(dir, treeUri),
+            parentUri = null,
+            isDirectory = true,
+            format = BookFormat.PDF_FOLDER.name,
+            size = pdfFiles.sumOf { it.length() },
+            localRepoId = repo.id,
+            groupId = repo.defaultGroupId,
+            addedAt = System.currentTimeMillis(),
+        )
+        discovered += Discovered(entity, conventionCoverUri)
+    }
+
+    /**
+     * 文件夹书的 uri：用 tree + documentId 构造的 document URI，便于后续 ArchiveFactory 直接访问；
+     * 构造失败时回退 [dir] 自身的 uri。图片目录书与 PDF 合集共用。
+     */
+    private fun folderDocumentUri(dir: DocumentFile, treeUri: Uri): String = runCatching {
+        DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getDocumentId(dir.uri)).toString()
+    }.getOrNull() ?: dir.uri.toString()
 
     /**
      * 封面文件名约定查找：直接子项中文件名（去扩展名、不区分大小写）等于
@@ -396,6 +469,7 @@ class LibraryScanner(
         name.substringAfterLast('.', "").lowercase() in imageExts
 
     private companion object {
+        const val TAG = "LibraryScanner"
         const val MAX_COVER_WIDTH = 512
         const val JPEG_QUALITY = 82
     }

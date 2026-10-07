@@ -147,15 +147,16 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
         withContext(Dispatchers.IO) { localRepoDao.setEnabled(id, enabled) }
     }
 
-    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） */
+    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组）/ 同文件夹 PDF 合并开关 */
     override suspend fun updateLocalRepoConfig(
         id: Long,
         name: String,
         coverFileName: String,
         defaultGroupId: Long?,
+        mergeFolderPdfs: Boolean,
     ) {
         withContext(Dispatchers.IO) {
-            localRepoDao.updateConfig(id, name, coverFileName, defaultGroupId)
+            localRepoDao.updateConfig(id, name, coverFileName, defaultGroupId, mergeFolderPdfs)
         }
     }
 
@@ -417,6 +418,19 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
         }
     }
 
+    /** 批量 SQL 的 id 分批：去重后每批最多 500 个，低于 SQLite 老版本 999 个绑定变量的上限 */
+    private fun idChunks(bookIds: Collection<Long>): List<List<Long>> = bookIds.distinct().chunked(500)
+
+    /** 批量收藏/取消收藏：目标状态由调用方显式给出，分批在同一事务里提交 */
+    override suspend fun setFavorite(bookIds: Collection<Long>, favorite: Boolean) {
+        if (bookIds.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                for (chunk in idChunks(bookIds)) dao.setFavoriteForIds(chunk, favorite)
+            }
+        }
+    }
+
     override suspend fun deleteBook(bookId: Long) {
         withContext(Dispatchers.IO) {
             val coverPath = dao.getById(bookId)?.coverPath
@@ -425,6 +439,25 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
                 dao.deleteById(bookId)
             }
             coverPath?.let { path -> runCatching { File(path).delete() } }
+        }
+    }
+
+    /**
+     * 批量删除：先收集封面路径，事务里逐批删书签与书，提交后再清封面缓存文件。
+     * 不动原文件；不存在的 id 直接忽略。
+     */
+    override suspend fun deleteBooks(bookIds: Collection<Long>) {
+        if (bookIds.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            val chunks = idChunks(bookIds)
+            val coverPaths = chunks.flatMap { chunk -> dao.getByIds(chunk).mapNotNull { it.coverPath } }
+            database.withTransaction {
+                for (chunk in chunks) {
+                    dao.deleteBookmarksByBookIds(chunk)
+                    dao.deleteByIds(chunk)
+                }
+            }
+            for (path in coverPaths) runCatching { File(path).delete() }
         }
     }
 
@@ -439,6 +472,16 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
     override suspend fun clearReadingHistory(bookId: Long) {
         withContext(Dispatchers.IO) {
             dao.getById(bookId)?.let { dao.updateBook(it.copy(currentPage = 0, lastReadAt = null)) }
+        }
+    }
+
+    /** 批量删除阅读记录：进度归零、最近阅读时间置空，页数、书与书签保留 */
+    override suspend fun clearReadingHistory(bookIds: Collection<Long>) {
+        if (bookIds.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                for (chunk in idChunks(bookIds)) dao.clearProgressForIds(chunk)
+            }
         }
     }
 
@@ -754,6 +797,16 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
     override suspend fun moveBookToGroup(bookId: Long, groupId: Long?) {
         withContext(Dispatchers.IO) {
             groupDao.moveBookToGroup(bookId, groupId)
+        }
+    }
+
+    /** 批量把书移入分组；groupId 传 null 表示移出分组 */
+    override suspend fun moveBooksToGroup(bookIds: Collection<Long>, groupId: Long?) {
+        if (bookIds.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            database.withTransaction {
+                for (chunk in idChunks(bookIds)) groupDao.moveBooksToGroup(chunk, groupId)
+            }
         }
     }
 

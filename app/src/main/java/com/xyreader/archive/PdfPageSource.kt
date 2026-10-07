@@ -6,10 +6,10 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.xyreader.core.BookEntity
+import com.xyreader.feedback.AppLog
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -59,7 +59,7 @@ class PdfPageSource private constructor(
                     bitmap.asImageBitmap()
                 } finally {
                     runCatching { page.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 PDF 页异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 PDF 页异常", it) }
                 }
             }
         }
@@ -81,7 +81,7 @@ class PdfPageSource private constructor(
                     page.width.toFloat() / page.height.coerceAtLeast(1)
                 } finally {
                     runCatching { page.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "读取 PDF 页尺寸后关闭页面异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "读取 PDF 页尺寸后关闭页面异常", it) }
                 }
             }
         }
@@ -90,9 +90,9 @@ class PdfPageSource private constructor(
     override fun close() = onFirstClose {
         // renderer.close() 会关闭它接管的 fd，pfd.close() 幂等兜底
         runCatching { renderer.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 PdfRenderer 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 PdfRenderer 异常", it) }
         runCatching { pfd.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 PDF 描述符异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 PDF 描述符异常", it) }
     }
 
     companion object {
@@ -103,15 +103,15 @@ class PdfPageSource private constructor(
                 val renderer = PdfRenderer(pfd)
                 if (renderer.pageCount == 0) {
                     runCatching { renderer.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭空 PDF 异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 PDF 异常", it) }
                     runCatching { pfd.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
                     throw IllegalStateException("PDF 没有可渲染页面: ${book.uri}")
                 }
                 return PdfPageSource(renderer, pfd, context.applicationContext)
             } catch (t: Throwable) {
                 runCatching { pfd.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
                 throw t
             }
         }

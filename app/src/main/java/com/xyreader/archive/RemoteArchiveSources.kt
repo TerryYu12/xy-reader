@@ -1,12 +1,12 @@
 package com.xyreader.archive
 
 import android.content.Context
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.Chapter
 import com.xyreader.core.PageSource
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -94,9 +94,9 @@ object RemoteArchiveSources {
         } catch (t: Throwable) {
             // 打开中途失败：ZipFile.close 会顺带关闭 channel，channel.close 幂等兜底
             runCatching { zip?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 ZipFile 异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 ZipFile 异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }
@@ -124,9 +124,9 @@ object RemoteArchiveSources {
             return RemoteSevenZipPageSource(sevenZip, channel, entries)
         } catch (t: Throwable) {
             runCatching { sevenZip?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 7z 归档异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 7z 归档异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }
@@ -154,9 +154,9 @@ object RemoteArchiveSources {
             return RemoteTarPageSource(tarFile, channel, entries)
         } catch (t: Throwable) {
             runCatching { tarFile?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 TAR 归档异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 TAR 归档异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }
@@ -318,9 +318,9 @@ class RemoteZipPageSource internal constructor(
     override fun close() = onFirstClose {
         // ZipFile.close() 会关闭传入的 channel；channel.close() 幂等兜底
         runCatching { zip.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程 ZipFile 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程 ZipFile 异常", it) }
         runCatching { channel.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
     }
 }
 
@@ -356,9 +356,9 @@ class RemoteSevenZipPageSource internal constructor(
     override fun close() = onFirstClose {
         // SevenZFile.close() 会关闭传入的 channel；channel.close() 幂等兜底
         runCatching { sevenZip.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程 7z 归档异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程 7z 归档异常", it) }
         runCatching { channel.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
     }
 }
 
@@ -394,8 +394,8 @@ class RemoteTarPageSource internal constructor(
     override fun close() = onFirstClose {
         // TarFile.close() 会关闭传入的 channel；channel.close() 幂等兜底
         runCatching { tarFile.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程 TAR 归档异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程 TAR 归档异常", it) }
         runCatching { channel.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭远程通道异常", it) }
     }
 }

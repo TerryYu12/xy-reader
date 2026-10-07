@@ -1,0 +1,13 @@
+{
+  "name": "xy-reader-log-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "XY reader BUG 反馈日志中转 Worker（Cloudflare Workers，无依赖）",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -2,10 +2,10 @@ package com.xyreader.archive
 
 import android.content.Context
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.Chapter
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,9 +49,9 @@ class TarPageSource private constructor(
     override fun close() = onFirstClose {
         // TarFile.close() 关闭其持有的 channel（= fd），pfd.close() 幂等兜底
         runCatching { tarFile.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 TAR 归档异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 TAR 归档异常", it) }
         runCatching { pfd.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
     }
 
     companion object {
@@ -68,15 +68,15 @@ class TarPageSource private constructor(
                 )
                 if (entries.isEmpty()) {
                     runCatching { tarFile.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭空 TAR 归档异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 TAR 归档异常", it) }
                     runCatching { pfd.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
                     throw IllegalStateException("TAR 包内没有图片页面: ${book.uri}")
                 }
                 return TarPageSource(tarFile, pfd, entries)
             } catch (t: Throwable) {
                 runCatching { pfd.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
                 throw t
             }
         }

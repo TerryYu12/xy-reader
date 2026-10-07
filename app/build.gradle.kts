@@ -16,7 +16,7 @@ val keystoreProperties = Properties().apply {
 }
 
 /** 应用发布版本号：defaultConfig 与交付命名脚本（XY-READER-<版本>.apk）共用这一处 */
-val appVersionName = "0.5.3"
+val appVersionName = "0.5.4"
 
 android {
     namespace = "com.xyreader"
@@ -26,9 +26,13 @@ android {
         applicationId = "com.xyreader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
+        versionCode = 28
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // BUG 反馈上传端点（infra/log-relay 部署的中转 Worker）。全工程只在这里定义一次，
+        // 客户端经 BuildConfig.FEEDBACK_ENDPOINT 读取；Worker 部署后若域名与此不同，只需改这一行。
+        buildConfigField("String", "FEEDBACK_ENDPOINT", "\"https://xylog.terry12.ccwu.cc/upload\"")
     }
 
     signingConfigs {

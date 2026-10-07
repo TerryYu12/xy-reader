@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xyreader.archive.NovelPageSource
 import com.xyreader.archive.NovelStyle
+import com.xyreader.archive.PdfFolderPageSource
 import com.xyreader.archive.PdfPageSource
 import com.xyreader.core.ArchiveFactory
 import com.xyreader.core.BookEntity
@@ -22,6 +23,7 @@ import com.xyreader.core.PageSource
 import com.xyreader.core.ReadBackground
 import com.xyreader.core.ReaderPrefs
 import com.xyreader.data.AppGraph
+import com.xyreader.feedback.AppLog
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -396,6 +398,8 @@ class ReaderViewModel(
             preloadAround(start)
             scheduleLatestStyleSync()
         } catch (e: Exception) {
+            // 只记书 id 与格式，不记书名与路径
+            AppLog.e(TAG, "打开书籍失败 bookId=${book.id} format=${book.format}", e)
             _isTextNovel.value = false
             _state.value = ReaderState(
                 phase = ReaderPhase.Error,
@@ -529,9 +533,9 @@ class ReaderViewModel(
 
     /** 高清档：位图页在缩小显示前先做多级高质量预缩（见 ImageDownscale）；失败回退原图。 */
     private fun applyImageQuality(src: PageSource, bitmap: ImageBitmap): ImageBitmap {
-        // PDF 渲染尺寸已按屏幕适配（PdfRenderMath）；文字页（NovelPageSource）天然贴合屏幕——
-        // 这两类再走预缩只会无谓损失分辨率 / 浪费 CPU，直接跳过。
-        if (src is PdfPageSource || src is NovelPageSource) return bitmap
+        // PDF（含 PDF 合集，子源就是 PdfPageSource）渲染尺寸已按屏幕适配（PdfRenderMath）；
+        // 文字页（NovelPageSource）天然贴合屏幕——这几类再走预缩只会无谓损失分辨率 / 浪费 CPU，直接跳过。
+        if (src is PdfPageSource || src is PdfFolderPageSource || src is NovelPageSource) return bitmap
         if (readerPrefs.value.imageQuality != ImageQuality.HIGH) return bitmap
         val android = bitmap.asAndroidBitmap()
         val target = ImageDownscale.targetSize(android.width, android.height, screenShortSidePx())
@@ -695,6 +699,7 @@ class ReaderViewModel(
     }
 
     private companion object {
+        const val TAG = "ReaderViewModel"
         const val PAGE_UI_RADIUS = 3
     }
 }

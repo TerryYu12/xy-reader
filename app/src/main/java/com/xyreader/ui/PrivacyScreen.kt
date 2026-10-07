@@ -31,8 +31,9 @@ import androidx.compose.ui.unit.sp
 /**
  * 隐私政策页（设置 → 隐私政策）。
  *
- * 内容与应用仓库根目录的 PRIVACY.md 保持同步：本应用不收集任何数据，
- * 网络行为仅发生在用户主动配置远程仓库（WebDAV / Google Drive）时。
+ * 内容与应用仓库根目录的 PRIVACY.md 保持同步：本应用默认不收集、不上传任何数据；
+ * 网络行为仅发生在用户配置远程仓库（WebDAV / Google Drive）、检查更新，
+ * 以及用户主动提交 BUG 反馈时。
  */
 @Composable
 fun PrivacyScreen(onBack: () -> Unit) {
@@ -46,7 +47,7 @@ fun PrivacyScreen(onBack: () -> Unit) {
         ) {
             SubpageHead(
                 title = "隐私政策",
-                subtitle = "本应用不收集任何数据",
+                subtitle = "默认不上传任何数据",
                 onBack = onBack,
             )
             Text(
@@ -56,7 +57,7 @@ fun PrivacyScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "更新日期：2026-09-30",
+                "更新日期：2026-10-07",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -64,39 +65,51 @@ fun PrivacyScreen(onBack: () -> Unit) {
             PolicyParagraph(
                 "总则",
                 "XY reader 是一款本地漫画 / 小说阅读工具。本应用的设计以隐私为优先：" +
-                    "不收集你的任何数据，所有信息都只保存在你自己的设备上。",
+                    "默认不收集、不上传你的任何数据，所有信息都保存在你自己的设备上；" +
+                    "只有你主动提交「BUG 反馈」时，才会把反馈内容发送给作者。",
             )
             PolicyParagraph(
                 "信息收集",
-                "本应用不收集任何个人信息：\n\n" +
+                "本应用不主动收集任何个人信息：\n\n" +
                     "• 无账号系统，无需注册或登录；\n" +
-                    "• 无广告、无统计分析、无崩溃上报等第三方追踪组件；\n" +
-                    "• 不向作者或任何第三方服务器发送你的数据。",
+                    "• 无广告、无统计分析、无自动崩溃上报等第三方追踪组件；\n" +
+                    "• 默认不会向作者或任何第三方服务器上传你的数据；" +
+                    "仅当你在「设置 → BUG 反馈」中主动提交时，才会发送反馈内容（详见「网络通信」）。",
             )
             PolicyParagraph(
                 "本地数据",
                 "以下数据仅保存在设备本地：\n\n" +
                     "• 书库记录、阅读进度、书签、分组与阅读设置；\n" +
                     "• 远程仓库（WebDAV）的服务器地址与账号凭据；\n" +
-                    "• Google Drive 的 OAuth 授权令牌。\n\n" +
-                    "卸载应用即可清除全部本地数据。",
+                    "• Google Drive 的 OAuth 授权令牌；\n" +
+                    "• 运行日志：保存在应用缓存目录，最多约 2MB，超出后自动轮转覆盖；" +
+                    "写入前已去除密码、令牌与链接参数，不会被自动上传。\n\n" +
+                    "卸载应用即可清除全部本地数据（运行日志也可在系统设置中通过「清除缓存」单独清除）。",
             )
             PolicyParagraph(
                 "网络通信",
-                "仅在以下情形发起网络请求，且全部由你的操作直接触发、直达你指定的服务器：\n\n" +
-                    "• WebDAV 远程仓库：连接你填写的服务器地址，浏览目录、读取书籍；\n" +
-                    "• Google Drive：通过 Google 官方 API 读取你授权范围内（drive.readonly，只读）的文件。\n\n" +
-                    "除此之外，本应用不进行任何网络通信。",
+                "仅在以下情形发起网络请求：\n\n" +
+                    "• WebDAV 远程仓库（由你的操作触发）：直接连接你填写的服务器地址，浏览目录、读取书籍；\n" +
+                    "• Google Drive（由你的操作触发）：通过 Google 官方 API 读取你授权范围内（drive.readonly，只读）的文件；\n" +
+                    "• 检查更新：进入首页后（距上次成功检查不足 24 小时则跳过）及你在「设置 → 版本」中点击时，" +
+                    "向 GitHub（api.github.com）查询本应用的最新发布版本；请求不携带你的任何个人数据，" +
+                    "GitHub 会像对待任何网络请求一样看到你的 IP 地址。你确认更新后，应用才会从 GitHub 下载安装包；\n" +
+                    "• BUG 反馈：仅在你主动提交时，把问题描述、版本与设备信息、本地运行日志（已脱敏）" +
+                    "发送到作者的反馈中转服务，并存入作者的私有 GitHub 仓库，仅用于排查问题。\n\n" +
+                    "除上述情形外，本应用不进行任何网络通信。",
             )
             PolicyParagraph(
                 "权限使用",
-                "• 网络权限（INTERNET）：仅用于连接你配置的远程仓库；\n" +
+                "• 网络权限（INTERNET）：用于连接你配置的远程仓库、检查与下载更新，以及你主动提交的 BUG 反馈；\n" +
+                    "• 安装未知应用（REQUEST_INSTALL_PACKAGES）：仅用于你确认更新后，调起系统安装器安装已下载的更新包；\n" +
                     "• 文件与文件夹访问：通过系统文件选择器授权，应用仅访问你主动选择的文件。",
             )
             PolicyParagraph(
                 "第三方服务",
                 "使用 Google Drive 功能时，相关数据访问同时受 Google 隐私政策约束；" +
-                    "授权可随时在 Google 账号的「第三方应用访问权限」中撤销。",
+                    "授权可随时在 Google 账号的「第三方应用访问权限」中撤销。" +
+                    "检查更新与更新包下载经由 GitHub 提供；BUG 反馈经由 Cloudflare Workers 中转后存入 GitHub 私有仓库，" +
+                    "相关数据同时受 GitHub、Cloudflare 各自隐私政策约束。",
             )
             PolicyParagraph(
                 "政策更新",

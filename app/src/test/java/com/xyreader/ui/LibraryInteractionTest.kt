@@ -326,4 +326,307 @@ class LibraryInteractionTest {
         assertEquals(4, firstRow.map { it.center.x }.distinct().size)
         assertTrue("第五本应落在下一行", fifth.top > firstRow.first().top)
     }
+
+    // ---- 多选 ----
+
+    @Test fun longPressWithoutMovingEntersSelectionAndTapsToggleInsteadOfOpening() {
+        val second = book.copy(id = 8, title = "第二本")
+        var opened = 0
+        compose.setContent {
+            ArkTheme {
+                // 不传拖动参数：与列表页一致，长按不动松手就是进入多选
+                BookGrid(
+                    books = listOf(book, second),
+                    onOpenBook = { opened++ },
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("测试小说").performTouchInput {
+            down(center)
+            advanceEventTime(700)
+            up()
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("已选 1 本").assertIsDisplayed()
+        compose.onNodeWithContentDescription("已选：测试小说").assertExists()
+        compose.onNodeWithContentDescription("未选：第二本").assertExists()
+        compose.runOnIdle { assertEquals("长按松手不应打开书", 0, opened) }
+
+        // 多选态下点封面是切换勾选，不是打开
+        compose.onNodeWithContentDescription("第二本").performClick()
+        compose.onNodeWithText("已选 2 本").assertIsDisplayed()
+        compose.onNodeWithContentDescription("测试小说").performClick()
+        compose.onNodeWithText("已选 1 本").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, opened) }
+    }
+
+    @Test fun longPressWithTinyFingerJitterAlsoEntersSelection() {
+        var opened = 0
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book),
+                    onOpenBook = { opened++ },
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        // 真实手指总会抖动：1px 的移动在点按容差之内，仍然算「没有拖动」
+        compose.onNodeWithContentDescription("测试小说").performTouchInput {
+            down(center)
+            advanceEventTime(700)
+            moveTo(center + Offset(1f, 1f), delayMillis = 16)
+            up()
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("已选 1 本").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, opened) }
+    }
+
+    @Test fun longPressThenDraggingInAListGridDoesNotEnterSelection() {
+        val second = book.copy(id = 8, title = "第二本")
+        var opened = 0
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book, second),
+                    onOpenBook = { opened++ },
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        // 手指移出点按容差：列表页没有拖动功能，这次长按作废，既不多选也不打开
+        compose.onNodeWithContentDescription("测试小说").performTouchInput {
+            down(center)
+            advanceEventTime(700)
+            moveTo(center + Offset(1f, 1f), delayMillis = 16)
+            moveTo(center + Offset(60f, 0f), delayMillis = 100)
+            up()
+        }
+        compose.waitForIdle()
+
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+        compose.runOnIdle { assertEquals(0, opened) }
+    }
+
+    @Test fun moreMenuStartsSelectionAndHidesPerCardActions() {
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("更多：测试小说").performClick()
+        compose.onNodeWithText("多选").performClick()
+        compose.onNodeWithText("已选 1 本").assertIsDisplayed()
+        // 多选态隐藏封面爱心和标题行三点按钮，改为勾选标
+        compose.onNodeWithContentDescription("收藏").assertDoesNotExist()
+        compose.onNodeWithContentDescription("更多：测试小说").assertDoesNotExist()
+        compose.onNodeWithContentDescription("已选：测试小说").assertExists()
+
+        compose.onNodeWithContentDescription("退出多选").performClick()
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+        compose.onNodeWithContentDescription("收藏").assertExists()
+        compose.onNodeWithContentDescription("更多：测试小说").assertExists()
+    }
+
+    @Test fun selectAllThenBatchDeleteNeedsConfirmationAndExitsSelection() {
+        val second = book.copy(id = 8, title = "第二本")
+        val selection = BookSelectionState()
+        val deleted = mutableListOf<List<Long>>()
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book, second),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                    selectionState = selection,
+                    onBatchDelete = { ids -> deleted.add(ids) },
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { selection.enter() }
+        compose.waitForIdle()
+
+        // 还没勾选任何书：批量操作全部禁用
+        compose.onNodeWithTag("batch-delete").assertIsNotEnabled()
+        compose.onNodeWithText("全选").performClick()
+        compose.onNodeWithText("已选 2 本").assertIsDisplayed()
+        compose.onNodeWithText("全不选").assertIsDisplayed()
+        compose.onNodeWithTag("batch-delete").assertIsEnabled()
+
+        // 先取消：回调不触发，仍在多选里
+        compose.onNodeWithTag("batch-delete").performClick()
+        compose.onNodeWithText("删除选中的 2 本书？").assertIsDisplayed()
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle { assertTrue(deleted.isEmpty()) }
+        compose.onNodeWithText("已选 2 本").assertIsDisplayed()
+
+        // 再来一次并确认：收到两本书的 id，并退出多选
+        compose.onNodeWithTag("batch-delete").performClick()
+        compose.onNodeWithTag("batch-confirm").performClick()
+        compose.runOnIdle {
+            assertEquals(1, deleted.size)
+            assertEquals(setOf(7L, 8L), deleted.single().toSet())
+        }
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun batchMoveWithMixedGroupsNeedsAnExplicitTargetBeforeConfirm() {
+        val first = book.copy(groupId = 1L)
+        val second = book.copy(id = 8, title = "第二本", groupId = 2L)
+        val selection = BookSelectionState()
+        var moved: Pair<Set<Long>, Long?>? = null
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(first, second),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                    selectionState = selection,
+                    onBatchMove = { ids, groupId -> moved = ids.toSet() to groupId },
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { selection.enter() }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("全选").performClick()
+        compose.onNodeWithTag("batch-move").performClick()
+        compose.onNodeWithText("转移 2 本书到书架").assertIsDisplayed()
+        // 两本书分属不同分组：不预选，没选目标前「确定」不可用
+        compose.onNodeWithText("确定").assertIsNotEnabled()
+        compose.onNodeWithText("未分组").performClick()
+        compose.onNodeWithText("确定").assertIsEnabled()
+        compose.onNodeWithText("确定").performClick()
+
+        compose.runOnIdle { assertEquals(setOf(7L, 8L) to null, moved) }
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun batchMoveDialogPreselectsTheSharedGroupAndDistinguishesUngrouped() {
+        // 两本都未分组：预选「未分组」，「确定」直接可用，结果是 null 而不是「没选」
+        val second = book.copy(id = 8, title = "第二本")
+        val selection = BookSelectionState()
+        var moved: Pair<Set<Long>, Long?>? = null
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book, second),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                    selectionState = selection,
+                    onBatchMove = { ids, groupId -> moved = ids.toSet() to groupId },
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { selection.enter(7L); selection.toggle(8L) }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("batch-move").performClick()
+        compose.onNodeWithText("确定").assertIsEnabled()
+        compose.onNodeWithText("确定").performClick()
+        compose.runOnIdle { assertEquals(setOf(7L, 8L) to null, moved) }
+    }
+
+    @Test fun batchFavoriteFlipsToUnfavoriteOnlyWhenEverySelectedBookIsFavorite() {
+        val liked = book.copy(isFavorite = true)
+        val second = book.copy(id = 8, title = "第二本")
+        val selection = BookSelectionState()
+        val calls = mutableListOf<Pair<Set<Long>, Boolean>>()
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(liked, second),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                    selectionState = selection,
+                    onBatchFavorite = { ids, favorite -> calls.add(ids.toSet() to favorite) },
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        // 只选已收藏的那本：按钮是「取消收藏」，点击后取消收藏并退出多选
+        compose.runOnIdle { selection.enter(7L) }
+        compose.waitForIdle()
+        compose.onNodeWithText("取消收藏").assertIsDisplayed()
+        compose.onNodeWithTag("batch-favorite").performClick()
+        compose.runOnIdle { assertEquals(listOf(setOf(7L) to false), calls) }
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+
+        // 再把没收藏的也选上：不是全部已收藏，按钮是「收藏」，点击后全部收藏
+        calls.clear()
+        compose.runOnIdle { selection.enter(7L); selection.toggle(8L) }
+        compose.waitForIdle()
+        compose.onNodeWithText("收藏").assertIsDisplayed()
+        compose.onNodeWithTag("batch-favorite").performClick()
+        compose.runOnIdle { assertEquals(listOf(setOf(7L, 8L) to true), calls) }
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun batchClearHistoryRequiresConfirmation() {
+        val selection = BookSelectionState()
+        val cleared = mutableListOf<Set<Long>>()
+        compose.setContent {
+            ArkTheme {
+                BookGrid(
+                    books = listOf(book),
+                    onOpenBook = {},
+                    onToggleFavorite = {},
+                    onDeleteBook = {},
+                    modifier = Modifier.width(320.dp).height(600.dp),
+                    selectionState = selection,
+                    onBatchClearHistory = { ids -> cleared.add(ids.toSet()) },
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { selection.enter(7L) }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("batch-clear-history").performClick()
+        compose.onNodeWithText("删除阅读记录？").assertIsDisplayed()
+        compose.onNodeWithText("选中的 1 本书阅读进度将被清零回到未读，书籍与书签保留。").assertIsDisplayed()
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle { assertTrue(cleared.isEmpty()) }
+
+        compose.onNodeWithTag("batch-clear-history").performClick()
+        compose.onNodeWithTag("batch-confirm").performClick()
+        compose.runOnIdle { assertEquals(listOf(setOf(7L)), cleared) }
+        compose.onAllNodesWithText("已选", substring = true).assertCountEquals(0)
+    }
 }

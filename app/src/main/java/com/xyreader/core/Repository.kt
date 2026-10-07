@@ -51,13 +51,22 @@ interface LibraryRepository {
 
     suspend fun toggleFavorite(bookId: Long)
 
+    /** 批量收藏（[favorite] 为 true）或取消收藏；与单本 [toggleFavorite] 不同，这里显式指定目标状态。空集合什么也不做 */
+    suspend fun setFavorite(bookIds: Collection<Long>, favorite: Boolean)
+
     suspend fun deleteBook(bookId: Long)
+
+    /** 批量删除书籍：移除库记录、书签与封面缓存，不动原文件；不存在的 id 直接忽略。空集合什么也不做 */
+    suspend fun deleteBooks(bookIds: Collection<Long>)
 
     /** 重命名书籍（空标题忽略） */
     suspend fun renameBook(bookId: Long, title: String)
 
     /** 删除阅读记录：进度与最近阅读清零（书与书签保留） */
     suspend fun clearReadingHistory(bookId: Long)
+
+    /** 批量删除阅读记录：进度与最近阅读清零（书与书签保留）。与单本版同名重载，空集合什么也不做 */
+    suspend fun clearReadingHistory(bookIds: Collection<Long>)
 
     /** 刷新封面：重新从书文件生成并替换缓存（同时刷新页数）。返回是否成功 */
     suspend fun refreshCover(bookId: Long): Boolean
@@ -140,6 +149,9 @@ interface LibraryRepository {
     /** 把书移入分组；groupId 传 null 表示移出分组 */
     suspend fun moveBookToGroup(bookId: Long, groupId: Long?)
 
+    /** 批量把书移入分组；groupId 传 null 表示移出分组。空集合什么也不做 */
+    suspend fun moveBooksToGroup(bookIds: Collection<Long>, groupId: Long?)
+
     /** 某个分组的书；groupId 传 null 表示全部未分组的书 */
     fun booksInGroup(groupId: Long?, sort: SortOption): Flow<List<BookEntity>>
 
@@ -164,8 +176,18 @@ interface LibraryRepository {
     /** 开关：禁用后其书在书架隐藏且不参与刷新 */
     suspend fun setLocalRepoEnabled(id: Long, enabled: Boolean)
 
-    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） */
-    suspend fun updateLocalRepoConfig(id: Long, name: String, coverFileName: String, defaultGroupId: Long?)
+    /**
+     * 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组）/ 同文件夹 PDF 合并开关。
+     * [mergeFolderPdfs] 为真时，子文件夹内 ≥2 个 PDF 合成一本「PDF 合集」（仓库根目录除外）；
+     * 修改后需刷新仓库才生效。
+     */
+    suspend fun updateLocalRepoConfig(
+        id: Long,
+        name: String,
+        coverFileName: String,
+        defaultGroupId: Long?,
+        mergeFolderPdfs: Boolean,
+    )
 
     /** 删除仓库及其入库的书（含封面缓存）；授权的 SAF 权限无法主动撤销 */
     suspend fun removeLocalRepo(id: Long)

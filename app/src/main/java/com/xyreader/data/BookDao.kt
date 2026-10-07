@@ -80,6 +80,25 @@ interface BookDao {
     @Query("DELETE FROM books WHERE id = :bookId")
     suspend fun deleteById(bookId: Long)
 
+    // ---------- 批量（多选）----------
+    // 批量方法的 id 个数受 SQLite 绑定变量上限约束，调用方需先分批（见 LibraryRepositoryImpl）。
+
+    /** 按 id 批量查书（批量删除前收集封面路径用） */
+    @Query("SELECT * FROM books WHERE id IN (:bookIds)")
+    suspend fun getByIds(bookIds: List<Long>): List<BookEntity>
+
+    /** 批量设置/取消收藏 */
+    @Query("UPDATE books SET isFavorite = :fav WHERE id IN (:bookIds)")
+    suspend fun setFavoriteForIds(bookIds: List<Long>, fav: Boolean)
+
+    /** 批量清除阅读记录：进度归零、最近阅读时间置空（书、页数与书签保留） */
+    @Query("UPDATE books SET currentPage = 0, lastReadAt = NULL WHERE id IN (:bookIds)")
+    suspend fun clearProgressForIds(bookIds: List<Long>)
+
+    /** 按 id 批量删除书籍 */
+    @Query("DELETE FROM books WHERE id IN (:bookIds)")
+    suspend fun deleteByIds(bookIds: List<Long>)
+
     // ---------- 书签 ----------
 
     /** 插入书签，返回自增 id */
@@ -93,6 +112,10 @@ interface BookDao {
     /** 删除一本书时同时清理其所有书签 */
     @Query("DELETE FROM bookmarks WHERE bookId = :bookId")
     suspend fun deleteBookmarksByBookId(bookId: Long)
+
+    /** 批量删除书籍时同时清理这些书的所有书签 */
+    @Query("DELETE FROM bookmarks WHERE bookId IN (:bookIds)")
+    suspend fun deleteBookmarksByBookIds(bookIds: List<Long>)
 
     /** 全部书签，按创建时间倒序 */
     @Query("SELECT * FROM bookmarks ORDER BY createdAt DESC")

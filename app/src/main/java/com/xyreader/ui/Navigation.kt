@@ -256,7 +256,7 @@ fun ArkNavHost() {
                 )
             }
 
-            // 配置仓库（名称 / 封面文件名约定 / 默认添加分组）
+            // 配置仓库（名称 / 封面文件名约定 / 默认添加分组 / 同文件夹 PDF 合并开关）
             composable(
                 route = Routes.REPO_CONFIG,
                 arguments = listOf(navArgument("repoId") { type = NavType.LongType }),

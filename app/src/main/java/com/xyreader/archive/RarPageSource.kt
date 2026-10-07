@@ -1,10 +1,10 @@
 package com.xyreader.archive
 
 import android.content.Context
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.Chapter
+import com.xyreader.feedback.AppLog
 import com.github.junrar.Archive
 import com.github.junrar.rarfile.FileHeader
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +46,7 @@ class RarPageSource private constructor(
 
     override fun close() = onFirstClose {
         runCatching { archive.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 RAR 归档异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 RAR 归档异常", it) }
         // content URI 复制出的缓存文件有意保留在缓存目录，下次打开同一本书直接复用
     }
 
@@ -63,7 +63,7 @@ class RarPageSource private constructor(
             )
             if (headers.isEmpty()) {
                 runCatching { archive.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭空 RAR 归档异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 RAR 归档异常", it) }
                 throw IllegalStateException("RAR 包内没有图片页面: ${book.uri}")
             }
             return RarPageSource(archive, headers)
