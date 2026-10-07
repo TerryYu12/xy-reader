@@ -23,6 +23,7 @@ import com.xyreader.core.PageSource
 import com.xyreader.core.ReadBackground
 import com.xyreader.core.ReaderPrefs
 import com.xyreader.data.AppGraph
+import com.xyreader.feedback.AppLog
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -397,6 +398,8 @@ class ReaderViewModel(
             preloadAround(start)
             scheduleLatestStyleSync()
         } catch (e: Exception) {
+            // 只记书 id 与格式，不记书名与路径
+            AppLog.e(TAG, "打开书籍失败 bookId=${book.id} format=${book.format}", e)
             _isTextNovel.value = false
             _state.value = ReaderState(
                 phase = ReaderPhase.Error,
@@ -696,6 +699,7 @@ class ReaderViewModel(
     }
 
     private companion object {
+        const val TAG = "ReaderViewModel"
         const val PAGE_UI_RADIUS = 3
     }
 }

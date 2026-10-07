@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Coffee
@@ -50,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +75,7 @@ import kotlinx.coroutines.launch
  *
  * 强调色色相严格按设计色表：
  * 本地仓库=primary、远程=green、Drive=coral(tertiary)、书架=#c58af9(purple)、
- * 标签=gold、阅读配置=#78d9ec(cyan)、版本/隐私=quiet(gray)、支持作者=gold。
+ * 标签=gold、阅读配置=#78d9ec(cyan)、版本/BUG 反馈/隐私=quiet(gray)、支持作者=gold。
  * 开发中条目以 Snackbar 提示；各处入口跳转保持不变。
  */
 @Composable
@@ -91,6 +93,8 @@ fun SettingsScreen(
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var showAccentPicker by remember { mutableStateOf(false) }
+    // 用 rememberSaveable：写到一半时旋转屏幕，反馈对话框与已输入的内容都保留
+    var showFeedback by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -217,6 +221,15 @@ fun SettingsScreen(
                 )
                 RowDivider()
                 SettingRow(
+                    icon = Icons.Outlined.BugReport,
+                    title = "BUG 反馈",
+                    subtitle = "上传运行日志，帮助作者定位问题",
+                    iconTint = accentColor(AccentColor.GRAY),
+                    showChevron = true,
+                    onClick = { showFeedback = true },
+                )
+                RowDivider()
+                SettingRow(
                     icon = Icons.Outlined.PrivacyTip,
                     title = "隐私政策",
                     subtitle = "查看应用的数据处理说明",
@@ -241,6 +254,9 @@ fun SettingsScreen(
 
     if (showAccentPicker) {
         AccentPickerDialog(onDismiss = { showAccentPicker = false })
+    }
+    if (showFeedback) {
+        FeedbackDialog(onDismiss = { showFeedback = false })
     }
 }
 

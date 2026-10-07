@@ -121,7 +121,7 @@ internal enum class AccentColor(val light: Long, val dark: Long) {
     ORANGE(0xFFE8710A, 0xFFFDD663), // 标签
     CYAN(0xFF129EAF, 0xFF78D9EC),   // 阅读配置
     GOLD(0xFFB06000, 0xFFFDD663),   // 书签
-    GRAY(0xFF5F6368, 0xFF9AA0A6),   // 版本 / 隐私
+    GRAY(0xFF5F6368, 0xFF9AA0A6),   // 版本 / BUG 反馈 / 隐私
 }
 
 /** 按当前生效主题取对应的点缀色变体（手动模式经 LocalThemeMode 覆盖系统判断） */

@@ -13,6 +13,7 @@ import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.LibraryRepository.ScanReport
 import com.xyreader.core.LocalRepoEntity
+import com.xyreader.feedback.AppLog
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.CancellationException
@@ -120,7 +121,10 @@ class LibraryScanner(
         val start = System.currentTimeMillis()
         val treeUri = Uri.parse(repo.uri)
         val root = DocumentFile.fromTreeUri(context, treeUri)
-            ?: return@withContext ScanReport(0, 0, 0, System.currentTimeMillis() - start)
+        if (root == null) {
+            AppLog.w(TAG, "仓库根目录不可达，跳过扫描 repoId=${repo.id}")
+            return@withContext ScanReport(0, 0, 0, System.currentTimeMillis() - start)
+        }
 
         // 基准集合：本仓库已入库的书（uri → 记录）
         val baseline = repoDao.getBooksOfRepo(repo.id).associateBy { it.uri }
@@ -193,12 +197,15 @@ class LibraryScanner(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // 单本封面/页数失败不阻断扫描
+                AppLog.w(TAG, "封面/页数生成异常 bookId=${book.id} format=${book.format}", e)
             }
         }
 
-        ScanReport(added, updated, removed, System.currentTimeMillis() - start)
+        val elapsed = System.currentTimeMillis() - start
+        AppLog.i(TAG, "仓库扫描结束 repoId=${repo.id} 新增=$added 更新=$updated 移除=$removed 耗时=${elapsed}ms")
+        ScanReport(added, updated, removed, elapsed)
     }
 
     // ---------- 封面 / 元数据 ----------
@@ -253,7 +260,10 @@ class LibraryScanner(
                 source.close()
             }
         } catch (e: Exception) {
-            // 封面/页数失败不阻断入库
+            // 封面/页数失败不阻断入库；取消不算失败，不记日志
+            if (e !is CancellationException) {
+                AppLog.w(TAG, "封面/页数生成失败 bookId=${book.id} format=${book.format}", e)
+            }
             null
         }
     }
@@ -459,6 +469,7 @@ class LibraryScanner(
         name.substringAfterLast('.', "").lowercase() in imageExts
 
     private companion object {
+        const val TAG = "LibraryScanner"
         const val MAX_COVER_WIDTH = 512
         const val JPEG_QUALITY = 82
     }

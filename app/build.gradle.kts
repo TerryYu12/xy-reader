@@ -29,6 +29,10 @@ android {
         versionCode = 28
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // BUG 反馈上传端点（infra/log-relay 部署的中转 Worker）。全工程只在这里定义一次，
+        // 客户端经 BuildConfig.FEEDBACK_ENDPOINT 读取；Worker 部署后若域名与此不同，只需改这一行。
+        buildConfigField("String", "FEEDBACK_ENDPOINT", "\"https://xylog.terry12.ccwu.cc/upload\"")
     }
 
     signingConfigs {

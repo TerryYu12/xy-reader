@@ -2,10 +2,10 @@ package com.xyreader.archive
 
 import android.content.Context
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.Chapter
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -51,9 +51,9 @@ class ZipPageSource private constructor(
         // ZipFile.close() 会顺带关闭传入的 channel（= 关闭 fd）；
         // pfd.close() 幂等兜底，重复关闭异常吞掉并记录
         runCatching { zip.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 ZipFile 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 ZipFile 异常", it) }
         runCatching { pfd.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
     }
 
     companion object {
@@ -72,16 +72,16 @@ class ZipPageSource private constructor(
                 )
                 if (entries.isEmpty()) {
                     runCatching { zip.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭空压缩包异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空压缩包异常", it) }
                     runCatching { pfd.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
                     throw IllegalStateException("压缩包内没有图片页面: ${book.uri}")
                 }
                 return ZipPageSource(zip, pfd, entries)
             } catch (t: Throwable) {
                 // 打开中途失败：回收 pfd（channel 若已被成功构造的 ZipFile 持有则随其 GC/关闭）
                 runCatching { pfd.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
                 throw t
             }
         }

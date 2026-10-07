@@ -1,9 +1,9 @@
 package com.xyreader.data
 
-import android.util.Log
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.WebDavConfigEntity
+import com.xyreader.feedback.AppLog
 import java.net.URI
 import java.net.URLEncoder
 import kotlinx.coroutines.CancellationException
@@ -51,7 +51,7 @@ class WebDavScanner(
                 client.listDir(url, config.username, config.password)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                Log.w(TAG, "PROPFIND 失败，跳过目录: $url, ${e.message}")
+                AppLog.w(TAG, "PROPFIND 失败，跳过目录: $url, ${e.message}")
                 return
             }
             for (entry in entries) {

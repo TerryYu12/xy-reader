@@ -1,0 +1,8 @@
+# wrangler 的本地缓存与构建产物
+.wrangler/
+node_modules/
+
+# 本地开发用的机密（wrangler dev 读取），绝不入库
+.dev.vars
+.dev.vars.*
+.env

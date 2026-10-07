@@ -1,11 +1,11 @@
 package com.xyreader.archive
 
 import android.content.Context
-import android.util.Log
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.PageSource
 import com.xyreader.data.AppGraph
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
@@ -123,9 +123,9 @@ object RemoteGdriveSources {
         } catch (t: Throwable) {
             // 打开中途失败：ZipFile.close 会顺带关闭 channel，channel.close 幂等兜底
             runCatching { zip?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 ZipFile 异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 ZipFile 异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }
@@ -155,9 +155,9 @@ object RemoteGdriveSources {
             return RemoteSevenZipPageSource(sevenZip, channel, entries)
         } catch (t: Throwable) {
             runCatching { sevenZip?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 7z 归档异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 7z 归档异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }
@@ -187,9 +187,9 @@ object RemoteGdriveSources {
             return RemoteTarPageSource(tarFile, channel, entries)
         } catch (t: Throwable) {
             runCatching { tarFile?.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程 TAR 归档异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程 TAR 归档异常", it) }
             runCatching { channel.close() }
-                .onFailure { Log.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
+                .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收远程通道异常", it) }
             throw t
         }
     }

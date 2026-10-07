@@ -1,0 +1,35 @@
+# 日志中转 Worker 的部署配置（Cloudflare Workers）。部署步骤见同目录 README.md。
+name = "xy-reader-log-relay"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+# 只通过自定义域名对外服务：不暴露 *.workers.dev，也不生成预览 URL
+workers_dev = false
+preview_urls = false
+
+# 自定义域名：按实际域名修改（该域名所属的 zone 必须已托管在你的 Cloudflare 账号下）。
+# 客户端的上传地址 = https://<这个域名>/upload，定义在 app/build.gradle.kts 的 FEEDBACK_ENDPOINT，
+# 两处要一致。
+routes = [{ pattern = "xylog.terry12.ccwu.cc", custom_domain = true }]
+
+[vars]
+# 应用标识 → 日志仓库（owner/repo）。一个 Worker 可以同时服务多个应用：往这里加映射即可，
+# 例如 '{"xy-reader":"TerryYu12/xy-reader-feedback","lite-music":"TerryYu12/lite-music-feedback"}'。
+APPS = '{"xy-reader":"TerryYu12/xy-reader-feedback"}'
+# 可选：每日（UTC）全局上传上限，需同时绑定下面的 KV「QUOTA」才生效
+# DAILY_QUOTA = "200"
+
+# 限流：同一个来访 IP 每 60 秒最多 2 次上传（Workers Rate Limiting 绑定）。
+# namespace_id 是你自己在账号内取的唯一整数；period 只能是 10 或 60。
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1001"
+simple = { limit = 2, period = 60 }
+
+# 可选：KV 日配额（先 `npx wrangler kv namespace create QUOTA`，把输出的 id 填进来，再取消注释，
+# 并在上面的 [vars] 里打开 DAILY_QUOTA）。KV 计数是近似值，只用来防被刷爆。
+# [[kv_namespaces]]
+# binding = "QUOTA"
+# id = "<kv namespace id>"
+
+# 机密不写在这里：GITHUB_TOKEN 用 `npx wrangler secret put GITHUB_TOKEN` 单独设置。

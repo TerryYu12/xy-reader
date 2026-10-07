@@ -1,10 +1,10 @@
 package com.xyreader.data
 
 import android.content.Context
-import android.util.Log
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.GoogleDriveAccountEntity
+import com.xyreader.feedback.AppLog
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +56,7 @@ class GoogleDriveScanner(private val dao: BookDao) {
                 throw e
             } catch (e: Exception) {
                 // 注意：异常消息只含状态码/响应摘要，不含任何凭据；单个目录失败不阻断整体扫描
-                Log.w(TAG, "files.list 失败，跳过目录 folder=$folderId: ${e.message}")
+                AppLog.w(TAG, "files.list 失败，跳过目录 folder=$folderId: ${e.message}")
                 return
             }
             for (entry in children) {

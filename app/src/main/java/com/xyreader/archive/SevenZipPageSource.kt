@@ -2,10 +2,10 @@ package com.xyreader.archive
 
 import android.content.Context
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.xyreader.core.BookEntity
 import com.xyreader.core.Chapter
+import com.xyreader.feedback.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,9 +49,9 @@ class SevenZipPageSource private constructor(
     override fun close() = onFirstClose {
         // SevenZFile.close() 关闭其持有的 channel（= fd），pfd.close() 幂等兜底
         runCatching { sevenZip.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 7z 归档异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 7z 归档异常", it) }
         runCatching { pfd.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭 ParcelFileDescriptor 异常", it) }
     }
 
     companion object {
@@ -68,15 +68,15 @@ class SevenZipPageSource private constructor(
                 )
                 if (entries.isEmpty()) {
                     runCatching { sevenZip.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭空 7z 归档异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 7z 归档异常", it) }
                     runCatching { pfd.close() }
-                        .onFailure { Log.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
+                        .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
                     throw IllegalStateException("7z 包内没有图片页面: ${book.uri}")
                 }
                 return SevenZipPageSource(sevenZip, pfd, entries)
             } catch (t: Throwable) {
                 runCatching { pfd.close() }
-                    .onFailure { Log.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
+                    .onFailure { AppLog.w(PAGE_SOURCE_TAG, "打开失败回收 pfd 异常", it) }
                 throw t
             }
         }
