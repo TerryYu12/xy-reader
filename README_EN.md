@@ -26,6 +26,7 @@
   - Google Drive — OAuth authorization (read-only scope); ZIP / 7Z / TAR are streamed page-by-page on demand, RAR / PDF are downloaded to cache on first open;
 - **PDF collections**: when a subfolder of a local repository contains two or more PDFs, the whole folder is added as one book with one chapter per PDF (sorted by file name); PDFs in the repository root stay separate books, and the behavior can be turned off per repository in **Configure repository**;
 - **Organization**: groups, favorites, reading history, and bookmarks in one place;
+- **Bug report**: Settings → Bug report uploads the app log together with your description and returns an ID (copied automatically) to send to the author;
 - **Multi-select**: long-press a cover and release (or choose **Multi-select** in its ⋮ menu) to select several books, then move them to a shelf, favorite / unfavorite, clear reading history, or delete them in one go;
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
 - **Book cards**: three columns up to 1120dp wide and four above; each cover shows an integer progress badge, including `0%` for unread books;
@@ -121,7 +122,8 @@ Open from the reading toolbar, or go to **Settings → Reading configuration**. 
 
 ## Privacy
 
-- **No data is collected**: no ads, no analytics, no telemetry. The app makes no network requests except to the remote repositories you configure yourself;
+- **Nothing is uploaded by default**: no ads, no analytics. Network access is used only for the remote repositories you configure, update checks, and bug reports you submit yourself;
+- A bug report is sent only when you fill in a description under Settings → Bug report and submit it: the description, app version, device info and the local app log (passwords, tokens and URL parameters removed) go to the author's private GitHub repository;
 - Library data, reading progress and bookmarks are stored only on your device;
 - Remote repository addresses and credentials are stored only on your device;
 - Google Drive access uses the `drive.readonly` scope only — the app cannot modify anything in your drive.

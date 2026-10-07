@@ -9,6 +9,8 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'scripts/**'
+      # 反馈中转 Worker（infra/log-relay）与 App 构建无关
+      - 'infra/**'
   workflow_dispatch: {}
 
 # 同一分支的旧构建自动取消，省额度
