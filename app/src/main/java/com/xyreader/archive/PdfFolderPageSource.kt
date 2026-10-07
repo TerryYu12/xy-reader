@@ -3,12 +3,12 @@ package com.xyreader.archive
 import android.content.Context
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.documentfile.provider.DocumentFile
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookFormat
 import com.xyreader.core.Chapter
+import com.xyreader.feedback.AppLog
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -119,7 +119,7 @@ class PdfFolderPageSource private constructor(
 
     private fun closeChild(child: PdfPageSource) {
         runCatching { child.close() }
-            .onFailure { Log.w(PAGE_SOURCE_TAG, "关闭合集子 PDF 异常", it) }
+            .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭合集子 PDF 异常", it) }
     }
 
     override fun close() = onFirstClose {
@@ -167,11 +167,11 @@ class PdfFolderPageSource private constructor(
                 val pageCount = try {
                     probePageCount(appContext, uri)
                 } catch (e: Exception) {
-                    Log.w(PAGE_SOURCE_TAG, "跳过无法读取的 PDF: $uri", e)
+                    AppLog.w(PAGE_SOURCE_TAG, "跳过无法读取的 PDF: $uri", e)
                     continue
                 }
                 if (pageCount <= 0) {
-                    Log.w(PAGE_SOURCE_TAG, "跳过没有页面的 PDF: $uri")
+                    AppLog.w(PAGE_SOURCE_TAG, "跳过没有页面的 PDF: $uri")
                     continue
                 }
                 entries += Entry(uri, title, pageCount)
