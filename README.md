@@ -158,7 +158,6 @@
 
 本项目的部分设计（章节分页、阅读器交互行为等）参考了以下开源项目的公开实现思路，在此致谢：
 
-- [Legado（阅读）](https://github.com/gedoor/legado)
 - [KOReader](https://github.com/koreader/koreader)
 - [Librera Reader](https://github.com/librera/LibreraReader)
 
