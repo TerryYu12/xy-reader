@@ -38,12 +38,18 @@ interface LocalRepoDao {
     @Query("UPDATE local_repos SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
-    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） */
+    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） / 同文件夹 PDF 合并开关 */
     @Query(
         "UPDATE local_repos SET name = :name, coverFileName = :coverFileName, " +
-            "defaultGroupId = :defaultGroupId WHERE id = :id",
+            "defaultGroupId = :defaultGroupId, mergeFolderPdfs = :mergeFolderPdfs WHERE id = :id",
     )
-    suspend fun updateConfig(id: Long, name: String, coverFileName: String, defaultGroupId: Long?)
+    suspend fun updateConfig(
+        id: Long,
+        name: String,
+        coverFileName: String,
+        defaultGroupId: Long?,
+        mergeFolderPdfs: Boolean,
+    )
 
     /** 按 id 删除仓库（仓库内的书由调用方先按 getBooksOfRepo 列表逐本删除） */
     @Query("DELETE FROM local_repos WHERE id = :id")

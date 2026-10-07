@@ -10,6 +10,7 @@ import com.xyreader.archive.NovelPageSource
 import com.xyreader.archive.NovelStyle
 import com.xyreader.archive.NovelTextExtractor
 import com.xyreader.archive.PageSources
+import com.xyreader.archive.PdfFolderPageSource
 import com.xyreader.archive.PdfPageSource
 import com.xyreader.archive.RarPageSource
 import com.xyreader.archive.RemoteArchiveSources
@@ -46,6 +47,8 @@ import org.apache.commons.compress.archivers.zip.ZipFile
  * - CBT / TAR        -> TarPageSource（commons-compress TarFile）
  * - PDF              -> PdfPageSource（android.graphics.pdf.PdfRenderer）
  * - DIRECTORY        -> DirectoryPageSource（DocumentFile 目录内图片）
+ * - PDF_FOLDER       -> PdfFolderPageSource（同文件夹多个 PDF 合并的合集，每个 PDF 一章，子 PDF 按需打开；
+ *                       仅本地仓库，webdav:// / gdrive:// 暂不支持 -> UnsupportedOperationException）
  * - UNKNOWN          -> IllegalArgumentException
  *
  * 样式：[open] 的 [NovelStyle] 重载仅在格式命中文本管线时生效；null 时由
@@ -89,6 +92,7 @@ object ArchiveFactory {
                     fallback = { MobiPageSource.open(context, book) },
                 )
             BookFormat.DIRECTORY -> DirectoryPageSource.open(context, book)
+            BookFormat.PDF_FOLDER -> PdfFolderPageSource.open(context, book)
             BookFormat.UNKNOWN, null ->
                 throw IllegalArgumentException("不支持的格式: ${book.format} ${book.uri}")
         }
@@ -146,6 +150,8 @@ object ArchiveFactory {
                 )
             BookFormat.DIRECTORY ->
                 throw UnsupportedOperationException("远程图片目录暂不支持")
+            BookFormat.PDF_FOLDER ->
+                throw UnsupportedOperationException("远程 PDF 合集暂不支持")
             BookFormat.UNKNOWN, null ->
                 throw IllegalArgumentException("不支持的格式: ${book.format} ${book.uri}")
         }
@@ -198,6 +204,8 @@ object ArchiveFactory {
                 )
             BookFormat.DIRECTORY ->
                 throw UnsupportedOperationException("Google Drive 暂不支持图片目录")
+            BookFormat.PDF_FOLDER ->
+                throw UnsupportedOperationException("Google Drive 暂不支持 PDF 合集")
             BookFormat.UNKNOWN, null ->
                 throw IllegalArgumentException("不支持的格式: ${book.format} ${book.uri}")
         }

@@ -1,5 +1,6 @@
 package com.xyreader.core
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -30,7 +31,7 @@ data class BookEntity(
     val localRepoId: Long? = null,
 )
 
-/** 本地仓库（Room 表，替代早期 DataStore 的 uri 列表）：支持命名/开关/封面约定/默认分组 */
+/** 本地仓库（Room 表，替代早期 DataStore 的 uri 列表）：支持命名/开关/封面约定/默认分组/PDF 合并 */
 @Entity(tableName = "local_repos")
 data class LocalRepoEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -44,6 +45,9 @@ data class LocalRepoEntity(
     /** 新扫描到的书自动加入该分组；null = 不自动加入 */
     val defaultGroupId: Long? = null,
     val createdAt: Long,
+    /** 同文件夹 PDF 合并：子文件夹直接包含 ≥2 个 PDF 时整个文件夹入库为一本「PDF 合集」（仓库根目录除外） */
+    @ColumnInfo(defaultValue = "1")
+    val mergeFolderPdfs: Boolean = true,
 )
 
 /** 自定义书架分组（一本书最多归属一个分组） */

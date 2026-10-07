@@ -12,6 +12,9 @@ enum class BookFormat(val displayName: String) {
     AZW3("AZW3/KF8"),
     TXT("TXT"),
     DIRECTORY("图片目录"),
+
+    /** 同文件夹多个 PDF 合并成的合集（文件夹书：由扫描器按仓库规则生成，非扩展名识别，每个 PDF 为一章） */
+    PDF_FOLDER("PDF 合集"),
     UNKNOWN("未知");
 
     companion object {

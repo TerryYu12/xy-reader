@@ -23,7 +23,7 @@ import com.xyreader.core.WebDavConfigEntity
         GoogleDriveAccountEntity::class,
         LocalRepoEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class ArkDatabase : RoomDatabase() {
@@ -135,6 +135,17 @@ abstract class ArkDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 → v7：本地仓库新增「同文件夹 PDF 合并」开关。
+         * DEFAULT 1 与实体 @ColumnInfo(defaultValue = "1") 一致（Room 启动时会校验默认值），
+         * 已有仓库升级后默认开启；NOT NULL 对应 Kotlin 非空 Boolean。
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_repos ADD COLUMN mergeFolderPdfs INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         @Volatile
         private var instance: ArkDatabase? = null
 
@@ -152,6 +163,7 @@ abstract class ArkDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
+                        MIGRATION_6_7,
                     )
                     .build()
                     .also { instance = it }

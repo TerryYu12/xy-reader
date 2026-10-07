@@ -164,8 +164,18 @@ interface LibraryRepository {
     /** 开关：禁用后其书在书架隐藏且不参与刷新 */
     suspend fun setLocalRepoEnabled(id: Long, enabled: Boolean)
 
-    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） */
-    suspend fun updateLocalRepoConfig(id: Long, name: String, coverFileName: String, defaultGroupId: Long?)
+    /**
+     * 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组）/ 同文件夹 PDF 合并开关。
+     * [mergeFolderPdfs] 为真时，子文件夹内 ≥2 个 PDF 合成一本「PDF 合集」（仓库根目录除外）；
+     * 修改后需刷新仓库才生效。
+     */
+    suspend fun updateLocalRepoConfig(
+        id: Long,
+        name: String,
+        coverFileName: String,
+        defaultGroupId: Long?,
+        mergeFolderPdfs: Boolean,
+    )
 
     /** 删除仓库及其入库的书（含封面缓存）；授权的 SAF 权限无法主动撤销 */
     suspend fun removeLocalRepo(id: Long)

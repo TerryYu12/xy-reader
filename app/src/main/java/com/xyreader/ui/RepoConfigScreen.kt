@@ -31,6 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,7 +54,9 @@ import kotlinx.coroutines.launch
 /**
  * 配置仓库页（本地仓库管理 → 三点菜单 → 配置仓库，对照 MH-ARK 原版）：
  * 预填当前值的表单——仓库名（≤30 字）、封面文件名约定（≤10 字，多章节漫画根目录用）、
- * 默认添加分组（新扫描的书自动归组）。保存走 updateLocalRepoConfig，成功提示后返回。
+ * 默认添加分组（新扫描的书自动归组）、同文件夹 PDF 合并开关（子文件夹内 ≥2 个 PDF 合成一本
+ * 「PDF 合集」，每个 PDF 一章，仓库根目录的 PDF 不合并）。保存走 updateLocalRepoConfig，
+ * 成功提示后返回；合并开关修改后需刷新仓库才生效。
  */
 @Composable
 fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
@@ -78,7 +81,7 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
         ) {
             SubpageHead(
                 title = "配置仓库",
-                subtitle = "名称、封面约定与默认分组",
+                subtitle = "名称、封面约定、默认分组与 PDF 合并",
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
@@ -96,13 +99,12 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
                     onBack = onBack,
                 )
                 else -> {
-                // 表单初始值以仓库 id 为 key 记住：flow 重复发射同 id 仓库时不重置用户输入
-                val initial = remember(current.id) {
-                    Triple(current.name, current.coverFileName, current.defaultGroupId)
-                }
-                var name by remember(initial) { mutableStateOf(initial.first) }
-                var coverFileName by remember(initial) { mutableStateOf(initial.second) }
-                var defaultGroupId by remember(initial) { mutableStateOf(initial.third) }
+                // 表单初始值以仓库 id 为 key 记住整份快照：flow 重复发射同 id 仓库时不重置用户输入
+                val initial = remember(current.id) { current }
+                var name by remember(initial) { mutableStateOf(initial.name) }
+                var coverFileName by remember(initial) { mutableStateOf(initial.coverFileName) }
+                var defaultGroupId by remember(initial) { mutableStateOf(initial.defaultGroupId) }
+                var mergeFolderPdfs by remember(initial) { mutableStateOf(initial.mergeFolderPdfs) }
                 var groupMenuOpen by remember { mutableStateOf(false) }
 
                 Column(
@@ -257,6 +259,39 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 4.dp),
                             )
+                            // 同文件夹 PDF 合并开关：整行可点击切换，样式与上方「默认添加分组」块一致
+                            Surface(
+                                onClick = { mergeFolderPdfs = !mergeFolderPdfs },
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "同文件夹 PDF 合并为一本书",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Spacer(Modifier.size(2.dp))
+                                        Text(
+                                            "子文件夹内有 2 个及以上 PDF 时合成一本，每个 PDF 为一章（按文件名排序）；" +
+                                                "仓库根目录的 PDF 不合并。修改后刷新仓库生效。",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = mergeFolderPdfs,
+                                        onCheckedChange = { mergeFolderPdfs = it },
+                                    )
+                                }
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -281,6 +316,7 @@ fun RepoConfigScreen(repoId: Long, onBack: () -> Unit) {
                                                     name.trim(),
                                                     coverFileName.trim(),
                                                     defaultGroupId,
+                                                    mergeFolderPdfs,
                                                 )
                                                 scope.launch { snackbar.showSnackbar("已保存") }
                                                 delay(600)

@@ -147,15 +147,16 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
         withContext(Dispatchers.IO) { localRepoDao.setEnabled(id, enabled) }
     }
 
-    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组） */
+    /** 配置仓库：名称 / 封面文件名约定 / 默认添加分组（null = 不自动分组）/ 同文件夹 PDF 合并开关 */
     override suspend fun updateLocalRepoConfig(
         id: Long,
         name: String,
         coverFileName: String,
         defaultGroupId: Long?,
+        mergeFolderPdfs: Boolean,
     ) {
         withContext(Dispatchers.IO) {
-            localRepoDao.updateConfig(id, name, coverFileName, defaultGroupId)
+            localRepoDao.updateConfig(id, name, coverFileName, defaultGroupId, mergeFolderPdfs)
         }
     }
 

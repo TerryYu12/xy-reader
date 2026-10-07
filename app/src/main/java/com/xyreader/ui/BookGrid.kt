@@ -673,6 +673,7 @@ private fun FormatTag(format: String, modifier: Modifier = Modifier) {
         BookFormat.CB7 -> "7Z"
         BookFormat.CBT -> "TAR"
         BookFormat.DIRECTORY -> "目录"
+        BookFormat.PDF_FOLDER -> "PDF合集"
         BookFormat.UNKNOWN -> "未知"
         else -> BookFormat.valueOf(format).name
     }
