@@ -240,6 +240,12 @@ class LogRedactorTest {
     @Test fun emailLocalPartIsMasked() {
         assertRedacted("联系 ***@example.com 或 ***@sub.example.co.uk 。", "联系 me@example.com 或 a.b+c@sub.example.co.uk 。")
         assertRedacted("username=***@example.com", "username=me@example.com")
+        assertRedacted("***@mail.jianguoyun.com", "a.b@mail.jianguoyun.com")
+    }
+
+    @Test fun halServiceNamesAreNotMistakenForEmails() {
+        assertUnchanged("android.hardware.configstore@1.0::ISurfaceFlingerConfigs")
+        assertUnchanged("configstore@1.0::X")
     }
 
     @Test fun nonEmailAtSignsAreKept() {

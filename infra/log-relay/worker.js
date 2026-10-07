@@ -470,9 +470,9 @@ const RE_URL = new RegExp(
   'g',
 );
 
-/** 邮箱 */
+/** 邮箱（域名须以 ≥2 个字母的 TLD 结尾，与 LogRedactor.kt 一致） */
 const RE_EMAIL = new RegExp(
-  String.raw`(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@([A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)`,
+  String.raw`(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})`,
   'g',
 );
 

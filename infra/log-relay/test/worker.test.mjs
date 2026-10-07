@@ -777,6 +777,10 @@ const REDACTION_VECTORS = [
   ['username=me@example.com', 'username=***@example.com'],
   ['Foo@1a2b3c object toString', 'Foo@1a2b3c object toString'],
   ['user@localhost only', 'user@localhost only'],
+  ['user@example.com', '***@example.com'],
+  ['a.b@mail.jianguoyun.com', '***@mail.jianguoyun.com'],
+  ['configstore@1.0::X', 'configstore@1.0::X'],
+  ['android.hardware.configstore@1.0::ISurfaceFlingerConfigs', 'android.hardware.configstore@1.0::ISurfaceFlingerConfigs'],
   ['***@example.com', '***@example.com'],
   // 普通文本原样保留
   ['plain text with nothing sensitive', 'plain text with nothing sensitive'],

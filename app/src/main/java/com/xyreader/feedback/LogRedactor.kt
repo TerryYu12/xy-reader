@@ -17,7 +17,7 @@ package com.xyreader.feedback
  * 4. Google 令牌形态：`ya29.`（访问令牌）、`1//`（刷新令牌）、`GOCSPX-`（客户端密钥）→ 保留前缀 + `***`；
  * 5. URL（任意 `scheme://`，如 http / https / webdav / content）：去掉 userinfo（`user:pass@`）、
  *    去掉 query 与 fragment，path 截到 [MAX_URL_PATH_CHARS] 个字符（超出加 `…`）；
- * 6. 邮箱 → `***@域名`（WebDAV 用户名常是邮箱）。
+ * 6. 邮箱 → `***@域名`（WebDAV 用户名常是邮箱；域名须以 ≥2 个字母的 TLD 结尾，`configstore@1.0::X` 不算）。
  * 普通文本原样保留。
  *
  * 设计约束：
@@ -82,9 +82,9 @@ object LogRedactor {
             """(?:\?[^ \t\r\n#"'<>]*)?(?:#[^ \t\r\n"'<>]*)?""",
     )
 
-    /** 规则 6：邮箱（域名至少含一个点，避免误伤 `Foo@1a2b3c` 这类对象 toString） */
+    /** 规则 6：邮箱（域名须以 ≥2 个字母的 TLD 结尾，避免误伤 `Foo@1a2b3c`、`configstore@1.0::X` 这类 @ 用法） */
     private val EMAIL = Regex(
-        """(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@([A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+)""",
+        """(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})""",
     )
 
     /** 逐行脱敏仍失败时，该行整体替换为这段占位：宁可丢内容也不留明文 */
