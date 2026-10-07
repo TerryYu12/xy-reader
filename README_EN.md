@@ -16,6 +16,7 @@
 | E-books | PDF · EPUB · MOBI · AZW3 / KF8 | Paged reading |
 | Novels | TXT | Automatic chapter detection + typography engine |
 | Images | Folders | Use an image folder directly as a book |
+| PDF collections | Folders | Multiple PDFs in the same subfolder become one book, one chapter per PDF |
 
 ### Library management
 
@@ -23,7 +24,9 @@
 - **Remote repositories**:
   - WebDAV — works with Nutstore (坚果云), Alist, InfiniCLOUD and similar services;
   - Google Drive — OAuth authorization (read-only scope); ZIP / 7Z / TAR are streamed page-by-page on demand, RAR / PDF are downloaded to cache on first open;
+- **PDF collections**: when a subfolder of a local repository contains two or more PDFs, the whole folder is added as one book with one chapter per PDF (sorted by file name); PDFs in the repository root stay separate books, and the behavior can be turned off per repository in **Configure repository**;
 - **Organization**: groups, favorites, reading history, and bookmarks in one place;
+- **Multi-select**: long-press a cover and release (or choose **Multi-select** in its ⋮ menu) to select several books, then move them to a shelf, favorite / unfavorite, clear reading history, or delete them in one go;
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
 - **Book cards**: three columns up to 1120dp wide and four above; each cover shows an integer progress badge, including `0%` for unread books;
 - **Shelf layouts**: switch between the wooden cabinet and grid views; the choice is saved;
@@ -80,13 +83,15 @@ Local Release builds fall back to the debug key when release signing is not conf
 
 1. Open the **Shelf** tab and tap **Add repository** in the top-right corner to open local repository management;
 2. Tap **Add** on that page, then choose a folder in the system picker and scan it into your library;
-3. Repeat with other folders to manage multiple repositories side by side.
+3. Repeat with other folders to manage multiple repositories side by side;
+4. A subfolder holding several PDFs becomes one **PDF collection** (one chapter per PDF). To turn this off, open the repository's ⋮ menu → **Configure repository**, switch off the PDF-merge option, then refresh the repository.
 
 ### 2. Start reading
 
 - Tap a cover on the Home or Shelf tab to open its detail page, review the table of contents and progress, then choose to resume or start over; the floating **Start reading** menu also offers quick reading actions;
 - While reading, tap the **center** of the screen to bring up the toolbar: table of contents, bookmarks, brightness, typography, copy text, etc.;
-- In left-right mode, tap the **sides** of the screen to turn pages (can be disabled in settings); double-tap or pinch to zoom on manga pages.
+- In left-right mode, tap the **sides** of the screen to turn pages (can be disabled in settings); double-tap or pinch to zoom on manga pages;
+- Bulk organizing: on Home, a group page, or the All / Favorites / History lists, long-press a cover and release to enter multi-select (long-press and drag still reorders or moves to a group), tick books, then use the bottom bar to move, favorite, clear history, or delete; press Back to leave multi-select.
 
 ### 3. Reading settings
 
