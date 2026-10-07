@@ -2,12 +2,14 @@ package com.xyreader.feedback
 
 import android.app.Application
 import android.os.Build
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
 import com.xyreader.BuildConfig
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -32,7 +34,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * 反馈上传器单测：用 JDK 自带的 [HttpServer] 起本地中转服务，验证请求体与各类响应 / 故障的错误码映射。
+ * 反馈上传器单测：用基于 [ServerSocket] 的极简 HTTP/1.1 本地服务起中转（Android 单测类路径没有 com.sun.net.httpserver），验证请求体与各类响应 / 故障的错误码映射。
  * 需要 org.json 与 Build 的真实实现，所以走 Robolectric。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -47,58 +49,118 @@ class FeedbackUploaderTest {
         val body: String,
     )
 
-    private lateinit var server: HttpServer
+    /** 一次请求的上下文：服务端处理器通过它回写响应，或直接断开连接 */
+    private class Exchange(val socket: Socket) {
+        fun close() {
+            try {
+                socket.close()
+            } catch (_: IOException) {
+            }
+        }
+    }
+
+    private lateinit var serverSocket: ServerSocket
     private lateinit var serverThreads: ExecutorService
+    private val openSockets = CopyOnWriteArrayList<Socket>()
     private val received = CopyOnWriteArrayList<Recorded>()
 
     /** 让处理器阻塞的闸门：测试结束时放开，免得慢处理器线程挂着 */
     private val gate = CountDownLatch(1)
 
     @Volatile
-    private var respond: (HttpExchange) -> Unit = { reply(it, 200, """{"ok":true,"id":"20261007-123456-ab12"}""") }
+    private var respond: (Exchange) -> Unit = { reply(it, 200, """{"ok":true,"id":"20261007-123456-ab12"}""") }
 
     @Before
     fun startServer() {
-        serverThreads = Executors.newCachedThreadPool()
-        server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
-        server.executor = serverThreads
-        server.createContext("/") { exchange ->
-            val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
-            received += Recorded(
-                method = exchange.requestMethod,
-                path = exchange.requestURI.path,
-                contentType = exchange.requestHeaders.getFirst("Content-Type"),
-                accept = exchange.requestHeaders.getFirst("Accept"),
-                body = body,
-            )
-            try {
-                respond(exchange)
-            } finally {
-                exchange.close()
+        serverThreads = Executors.newCachedThreadPool { r -> Thread(r).apply { isDaemon = true } }
+        serverSocket = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        serverThreads.execute {
+            while (!serverSocket.isClosed) {
+                val socket = try {
+                    serverSocket.accept()
+                } catch (_: IOException) {
+                    break
+                }
+                openSockets += socket
+                serverThreads.execute { handle(socket) }
             }
         }
-        server.start()
     }
 
     @After
     fun stopServer() {
         gate.countDown()
-        server.stop(0)
+        try {
+            serverSocket.close()
+        } catch (_: IOException) {
+        }
+        openSockets.forEach { try { it.close() } catch (_: IOException) { } }
         serverThreads.shutdownNow()
     }
 
-    private fun reply(exchange: HttpExchange, status: Int, body: String) {
-        val bytes = body.toByteArray(Charsets.UTF_8)
-        exchange.responseHeaders.add("Content-Type", "application/json")
-        if (bytes.isEmpty()) {
-            exchange.sendResponseHeaders(status, -1)
-        } else {
-            exchange.sendResponseHeaders(status, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
+    private fun readLine(input: InputStream): String? {
+        val buf = ByteArrayOutputStream()
+        while (true) {
+            val b = input.read()
+            if (b < 0) return if (buf.size() == 0) null else buf.toString("ISO-8859-1")
+            if (b == '\n'.code) break
+            buf.write(b)
+        }
+        return buf.toString("ISO-8859-1").trimEnd('\r')
+    }
+
+    private fun handle(socket: Socket) {
+        val exchange = Exchange(socket)
+        try {
+            val input = socket.getInputStream().buffered()
+            val requestLine = readLine(input) ?: return
+            val parts = requestLine.split(' ')
+            val headers = HashMap<String, String>()
+            while (true) {
+                val line = readLine(input) ?: return
+                if (line.isEmpty()) break
+                val idx = line.indexOf(':')
+                if (idx > 0) headers[line.substring(0, idx).trim().lowercase()] = line.substring(idx + 1).trim()
+            }
+            val length = headers["content-length"]?.toIntOrNull() ?: 0
+            val bodyBytes = ByteArray(length)
+            var read = 0
+            while (read < length) {
+                val n = input.read(bodyBytes, read, length - read)
+                if (n < 0) return
+                read += n
+            }
+            received += Recorded(
+                method = parts.getOrElse(0) { "" },
+                path = parts.getOrElse(1) { "" }.substringBefore('?'),
+                contentType = headers["content-type"],
+                accept = headers["accept"],
+                body = bodyBytes.toString(Charsets.UTF_8),
+            )
+            respond(exchange)
+        } catch (_: IOException) {
+            // 客户端已取消 / 超时断开：忽略
+        } catch (_: InterruptedException) {
+            // 测试结束，线程池被打断：忽略
+        } finally {
+            exchange.close()
+            openSockets.remove(socket)
         }
     }
 
-    private val endpoint get() = "http://127.0.0.1:${server.address.port}/upload"
+    private fun reply(exchange: Exchange, status: Int, body: String) {
+        val bytes = body.toByteArray(Charsets.UTF_8)
+        val head = "HTTP/1.1 $status X\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: ${bytes.size}\r\n" +
+            "Connection: close\r\n\r\n"
+        val out = exchange.socket.getOutputStream()
+        out.write(head.toByteArray(Charsets.ISO_8859_1))
+        out.write(bytes)
+        out.flush()
+    }
+
+    private val endpoint get() = "http://127.0.0.1:${serverSocket.localPort}/upload"
 
     private fun newUploader(
         endpoint: String = this.endpoint,
