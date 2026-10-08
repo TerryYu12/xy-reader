@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -133,7 +134,10 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xyreader.core.BookmarkEntity
 import com.xyreader.core.Chapter
@@ -148,6 +152,7 @@ import com.xyreader.core.ReaderPrefs
 import com.xyreader.core.ScreenOrientation
 import com.xyreader.ui.LocalAutoRotate
 import com.xyreader.ui.LocalSetAutoRotate
+import com.xyreader.stats.formatTodayMinutes
 import com.xyreader.ui.formatDate
 import com.xyreader.ui.CapsuleTab
 import com.xyreader.ui.NovelSpacingControls
@@ -319,7 +324,37 @@ fun ReaderScreen(
         viewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // —— 阅读统计：前后台切换驱动计时与落库；离开页面时再兜底停表一次 ——
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onResume()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onPause()
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            // 只观察不消费（Initial 阶段）：任何触摸都算一次交互，用于「2 分钟无操作停止计时」
+            .pointerInput(viewModel) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        viewModel.onInteraction()
+                    }
+                }
+            },
+    ) {
         when (state.phase) {
             ReaderPhase.Loading -> Box(
                 Modifier.fillMaxSize(),
@@ -836,6 +871,8 @@ private fun ReaderPagerArea(
             val last = (pageCount - 1).coerceAtLeast(0)
             val shownPage = (if (sliderActive) sliderPage else currentPage)
                 .coerceIn(0, last)
+            // 只在工具栏可见时订阅，避免每次今日时长刷新都重组整个阅读区
+            val todayReadingMs by viewModel.todayReadingMs.collectAsState()
 
             // —— 章节跳转目标推导：基于 chapters 与当前页；chapters 为空时两钮禁用 ——
             val current = currentPage
@@ -894,6 +931,13 @@ private fun ReaderPagerArea(
                         text = "${((shownPage + 1).toFloat() / pageCount.coerceAtLeast(1) * 100).roundToInt()}%",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
+                    )
+                    Text(
+                        text = formatTodayMinutes(todayReadingMs),
+                        modifier = Modifier.padding(start = 10.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
                     )
                 }
                 // —— 等宽功能按钮：上一章 / 亮度 / 设置 / 书签 /（复制文字）/ 目录 / 下一章 ——

@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 XY reader ("the App") is a local manga & novel reading tool. Privacy comes first in its design: **by default no data is collected or uploaded, and all information stays on your own device.** Content is sent to the author only when you explicitly submit a "Bug report".
 
@@ -17,6 +17,7 @@ The App does not proactively collect any personal information:
 The following data is stored only on your device:
 
 - Library records, reading progress, bookmarks, groups, and reading settings;
+- Reading time and check-in records (daily reading duration and character / page counts) are stored only on your device and never uploaded;
 - Remote repository (WebDAV) server addresses and credentials;
 - Google Drive OAuth tokens;
 - Runtime logs: kept in the App's cache directory, at most about 2 MB, automatically rotated and overwritten; passwords, tokens and link parameters are stripped before writing, and logs are never uploaded automatically.

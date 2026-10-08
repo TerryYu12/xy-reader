@@ -476,6 +476,7 @@ private fun CabinetBookObject(
 @Composable
 private fun CabinetBookCover(book: BookEntity) {
     val shape = RoundedCornerShape(topStart = 8.dp, topEnd = 5.dp, bottomStart = 8.dp, bottomEnd = 5.dp)
+    val coverFrame = LocalCoverFrame.current
     Box(
         modifier = Modifier
             .fillMaxWidth(0.84f)
@@ -485,7 +486,9 @@ private fun CabinetBookCover(book: BookEntity) {
             .shadow(6.dp, shape)
             .clip(shape)
             .background(Color(0xFF33251F))
-            .border(1.dp, Color(0x66FFFFFF), shape),
+            .border(1.dp, Color(0x66FFFFFF), shape)
+            // 连续打卡封面边框：封面较小，用较细的 2dp（书脊视图不加）
+            .coverFrameBorder(coverFrame, shape, width = 2.dp),
     ) {
         if (book.coverPath == null) {
             DefaultBookCover(

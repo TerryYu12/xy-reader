@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
@@ -60,6 +61,7 @@ internal fun AppSideRail(
     onShelf: () -> Unit,
     onOpenSection: (ShelfSection) -> Unit,
     onOpenBookmarks: () -> Unit,
+    onOpenStats: () -> Unit,
     onOpenGroup: (Long) -> Unit,
     onContinueReading: (Long) -> Unit,
     onSettings: () -> Unit,
@@ -171,6 +173,13 @@ internal fun AppSideRail(
                     selected = route == "bookmarks" || selectedSection == ShelfSection.BOOKMARK,
                     collapsed = collapsed,
                     onClick = onOpenBookmarks,
+                )
+                RailItem(
+                    icon = Icons.Outlined.DateRange,
+                    label = "阅读统计",
+                    selected = route == "stats",
+                    collapsed = collapsed,
+                    onClick = onOpenStats,
                 )
 
                 if (!collapsed) {

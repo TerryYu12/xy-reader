@@ -15,11 +15,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.view.WindowCompat
+import com.xyreader.data.CoverFrameStore
 import com.xyreader.data.DisplayPrefsStore
 import com.xyreader.data.ThemePrefsStore
 import com.xyreader.ui.ArkNavHost
 import com.xyreader.ui.ArkTheme
 import com.xyreader.ui.LocalAutoRotate
+import com.xyreader.ui.LocalCoverFrame
+import com.xyreader.ui.LocalSetCoverFrame
 import com.xyreader.ui.LocalSetAutoRotate
 import com.xyreader.ui.LocalSetThemeAccent
 import com.xyreader.ui.LocalSetThemeMode
@@ -41,6 +44,8 @@ class MainActivity : ComponentActivity() {
             val themePrefs = remember { ThemePrefsStore(applicationContext) }
             // 显示行为（自动旋屏）：与主题同一个顶层持有，经 CompositionLocal 下发
             val displayPrefs = remember { DisplayPrefsStore(applicationContext) }
+            // 书库封面边框（连续打卡奖励）：同样顶层持有，封面卡只读 LocalCoverFrame
+            val coverFrameStore = remember { CoverFrameStore(applicationContext) }
             val scope = rememberCoroutineScope()
             val themeMode by themePrefs.themeMode.collectAsStateWithLifecycle(
                 initialValue = ThemeMode.SYSTEM,
@@ -63,6 +68,9 @@ class MainActivity : ComponentActivity() {
             val autoRotate by displayPrefs.autoRotate.collectAsStateWithLifecycle(
                 initialValue = false,
             )
+            val coverFrame by coverFrameStore.selected.collectAsStateWithLifecycle(
+                initialValue = null,
+            )
             // 开启 = 本 Activity 跟随重力传感器自由旋转（不受系统「自动旋转」总开关影响）；
             // 关闭 = 锁定竖屏。阅读器内的「屏幕方向」是更具体的覆盖项，进入阅读器时由
             // ReaderScreen 接管，离开时按本开关恢复，故两处不会互相打架。
@@ -80,6 +88,8 @@ class MainActivity : ComponentActivity() {
                 LocalSetThemeAccent provides { a -> scope.launch { themePrefs.setAccent(a) } },
                 LocalAutoRotate provides autoRotate,
                 LocalSetAutoRotate provides { enabled -> scope.launch { displayPrefs.setAutoRotate(enabled) } },
+                LocalCoverFrame provides coverFrame,
+                LocalSetCoverFrame provides { tier -> scope.launch { coverFrameStore.set(tier) } },
             ) {
                 ArkTheme(darkTheme = darkTheme, accent = accent) {
                     ArkNavHost()

@@ -97,3 +97,18 @@ data class GoogleDriveAccountEntity(
     val folderId: String,
     val createdAt: Long,
 )
+
+/**
+ * 每日阅读统计（本机私有，不上传）：一天一行，按本地日期累加。
+ * 主键 [date] 为 ISO 本地日期 yyyy-MM-dd，字典序即时间序。
+ */
+@Entity(tableName = "daily_reading")
+data class DailyReadingEntity(
+    @PrimaryKey val date: String,
+    /** 当天累计阅读时长（毫秒） */
+    val durationMs: Long = 0,
+    /** 当天累计阅读字数（仅文字书） */
+    val charsRead: Long = 0,
+    /** 当天累计阅读页数（仅图片类书籍） */
+    val pagesRead: Int = 0,
+)

@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookGroupEntity
 import com.xyreader.core.BookmarkEntity
+import com.xyreader.core.DailyReadingEntity
 import com.xyreader.core.GoogleDriveAccountEntity
 import com.xyreader.core.LocalRepoEntity
 import com.xyreader.core.WebDavConfigEntity
@@ -22,8 +23,9 @@ import com.xyreader.core.WebDavConfigEntity
         WebDavConfigEntity::class,
         GoogleDriveAccountEntity::class,
         LocalRepoEntity::class,
+        DailyReadingEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class ArkDatabase : RoomDatabase() {
@@ -37,6 +39,8 @@ abstract class ArkDatabase : RoomDatabase() {
     abstract fun webDavDao(): WebDavDao
 
     abstract fun gdriveDao(): GdriveDao
+
+    abstract fun readingStatsDao(): ReadingStatsDao
 
     companion object {
         private const val DB_NAME = "ark_reader.db"
@@ -146,6 +150,24 @@ abstract class ArkDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 → v8：新增每日阅读统计表 daily_reading。
+         * 列名/类型/非空性与 core.DailyReadingEntity 严格一致（Kotlin 非空类型 → NOT NULL，
+         * 实体字段的 Kotlin 默认值不进 schema，故 DDL 不写 DEFAULT），否则 Room 启动校验会失败。
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS daily_reading (" +
+                        "date TEXT NOT NULL, " +
+                        "durationMs INTEGER NOT NULL, " +
+                        "charsRead INTEGER NOT NULL, " +
+                        "pagesRead INTEGER NOT NULL, " +
+                        "PRIMARY KEY(date))",
+                )
+            }
+        }
+
         @Volatile
         private var instance: ArkDatabase? = null
 
@@ -164,6 +186,7 @@ abstract class ArkDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
+                        MIGRATION_7_8,
                     )
                     .build()
                     .also { instance = it }
