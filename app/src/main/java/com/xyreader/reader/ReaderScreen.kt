@@ -115,6 +115,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -133,7 +134,10 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xyreader.core.BookmarkEntity
 import com.xyreader.core.Chapter
@@ -148,6 +152,7 @@ import com.xyreader.core.ReaderPrefs
 import com.xyreader.core.ScreenOrientation
 import com.xyreader.ui.LocalAutoRotate
 import com.xyreader.ui.LocalSetAutoRotate
+import com.xyreader.stats.formatTodayMinutes
 import com.xyreader.ui.formatDate
 import com.xyreader.ui.CapsuleTab
 import com.xyreader.ui.NovelSpacingControls
@@ -177,6 +182,24 @@ private fun Modifier.topHairline(color: Color, inset: Dp = 0.dp): Modifier = dra
 
 /** 页内双击放大的目标倍数 */
 private const val PAGE_ZOOM = 2.5f
+
+/**
+ * 直接定位到目标页，不播放滚动动画（动画会快速滑过中间所有页，触发无谓的渲染与预载）。
+ *
+ * 跳转一律走这里：进度条松手、目录/书签、上一章/下一章。仅「点击两侧翻一页（±1）」才用带动画的
+ * `turnTo`，以保留相邻翻页的视觉反馈。
+ * 目标页收敛到 `[0, pageCount - 1]`；上下模式滚动 [listState]，其余模式切换 [pagerState]。
+ */
+internal suspend fun jumpToPage(
+    upDown: Boolean,
+    pagerState: PagerState,
+    listState: LazyListState,
+    pageCount: Int,
+    target: Int,
+) {
+    val safeTarget = target.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+    if (upDown) listState.scrollToItem(safeTarget) else pagerState.scrollToPage(safeTarget)
+}
 
 /** 沿 ContextWrapper 链找宿主 Activity；拿不到时返回 null（调用方判空降级） */
 private tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
@@ -301,7 +324,37 @@ fun ReaderScreen(
         viewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // —— 阅读统计：前后台切换驱动计时与落库；离开页面时再兜底停表一次 ——
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.onResume()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onPause()
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            // 只观察不消费（Initial 阶段）：任何触摸都算一次交互，用于「2 分钟无操作停止计时」
+            .pointerInput(viewModel) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        viewModel.onInteraction()
+                    }
+                }
+            },
+    ) {
         when (state.phase) {
             ReaderPhase.Loading -> Box(
                 Modifier.fillMaxSize(),
@@ -408,14 +461,11 @@ fun ReaderScreen(
                 var showDirectory by remember { mutableStateOf(false) }
                 // 弹层 tab 记忆：关闭再打开仍停留在上次的 tab
                 var directoryTab by remember { mutableIntStateOf(0) }
-                // 目录/书签跳页：立即收起弹层，同时滚动到目标页（越界收敛防脏数据）
+                // 目录/书签跳页：立即收起弹层，同时直接定位到目标页（不播动画；越界收敛防脏数据）
                 val jumpTo: (Int) -> Unit = { target ->
                     showDirectory = false
                     scope.launch {
-                        val last = (state.pageCount - 1).coerceAtLeast(0)
-                        val safeTarget = target.coerceIn(0, last)
-                        if (upDown) verticalListState.animateScrollToItem(safeTarget)
-                        else pagerState.animateScrollToPage(safeTarget)
+                        jumpToPage(upDown, pagerState, verticalListState, state.pageCount, target)
                     }
                 }
                 ReaderPagerArea(
@@ -503,6 +553,7 @@ private fun ReaderPagerArea(
     var showCopyDialog by remember { mutableStateOf(false) }
     val isTextNovel by viewModel.isTextNovel.collectAsState()
 
+    /** 相邻翻页（点击两侧 ±1 页）：保留滚动动画。跨多页的跳转请用 [jumpTo]。 */
     fun turnTo(target: Int) {
         if (target in 0 until pageCount) {
             scope.launch {
@@ -510,6 +561,11 @@ private fun ReaderPagerArea(
                 else pagerState.animateScrollToPage(target)
             }
         }
+    }
+
+    /** 进度条松手、上一章/下一章：直接定位，不播动画、不滑过中间页 */
+    fun jumpTo(target: Int) {
+        scope.launch { jumpToPage(upDown, pagerState, verticalListState, pageCount, target) }
     }
 
     /** 双击页内放大：1x ↔ 2.5x 平滑动画；缩回 1x 时清零平移 */
@@ -815,6 +871,8 @@ private fun ReaderPagerArea(
             val last = (pageCount - 1).coerceAtLeast(0)
             val shownPage = (if (sliderActive) sliderPage else currentPage)
                 .coerceIn(0, last)
+            // 只在工具栏可见时订阅，避免每次今日时长刷新都重组整个阅读区
+            val todayReadingMs by viewModel.todayReadingMs.collectAsState()
 
             // —— 章节跳转目标推导：基于 chapters 与当前页；chapters 为空时两钮禁用 ——
             val current = currentPage
@@ -857,11 +915,7 @@ private fun ReaderPagerArea(
                         },
                         onValueChangeFinished = {
                             sliderActive = false
-                            scope.launch {
-                                val target = sliderPage.coerceIn(0, last)
-                                if (upDown) verticalListState.animateScrollToItem(target)
-                                else pagerState.scrollToPage(target)
-                            }
+                            jumpTo(sliderPage)
                         },
                         valueRange = 0f..last.toFloat().coerceAtLeast(0f),
                         modifier = Modifier
@@ -878,6 +932,13 @@ private fun ReaderPagerArea(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
                     )
+                    Text(
+                        text = formatTodayMinutes(todayReadingMs),
+                        modifier = Modifier.padding(start = 10.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
                 }
                 // —— 等宽功能按钮：上一章 / 亮度 / 设置 / 书签 /（复制文字）/ 目录 / 下一章 ——
                 Row(
@@ -890,7 +951,7 @@ private fun ReaderPagerArea(
                         label = "上一章",
                         enabled = prevEnabled,
                         modifier = Modifier.weight(1f),
-                        onClick = { prevTarget?.let { turnTo(it) } },
+                        onClick = { prevTarget?.let { jumpTo(it) } },
                     )
                     ReaderBarIconButton(
                         icon = Icons.Outlined.Brightness6,
@@ -936,7 +997,7 @@ private fun ReaderPagerArea(
                         label = "下一章",
                         enabled = nextTarget != null,
                         modifier = Modifier.weight(1f),
-                        onClick = { nextTarget?.let { turnTo(it) } },
+                        onClick = { nextTarget?.let { jumpTo(it) } },
                     )
                 }
             }

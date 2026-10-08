@@ -57,7 +57,7 @@ fun PrivacyScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "更新日期：2026-10-07",
+                "更新日期：2026-10-08",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -80,6 +80,7 @@ fun PrivacyScreen(onBack: () -> Unit) {
                 "本地数据",
                 "以下数据仅保存在设备本地：\n\n" +
                     "• 书库记录、阅读进度、书签、分组与阅读设置；\n" +
+                    "• 阅读时长与打卡记录（按天累计的阅读时长、字数 / 页数）仅保存在本机，不会上传；\n" +
                     "• 远程仓库（WebDAV）的服务器地址与账号凭据；\n" +
                     "• Google Drive 的 OAuth 授权令牌；\n" +
                     "• 运行日志：保存在应用缓存目录，最多约 2MB，超出后自动轮转覆盖；" +

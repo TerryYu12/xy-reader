@@ -614,6 +614,7 @@ internal fun BookCard(
     var renameText by remember { mutableStateOf("") }
     var confirmClearHistory by remember { mutableStateOf(false) }
     val corner = RoundedCornerShape(20.dp)
+    val coverFrame = LocalCoverFrame.current
     // 长按后手指还没移出点按容差时不算拖动（松手是进入多选），卡片不要先变淡
     val isDragging = dragState != null && dragState.draggedBookId == book.id && dragState.dragMoved
 
@@ -633,9 +634,14 @@ internal fun BookCard(
                 .shadow(elevation = 2.dp, shape = corner)
                 .clip(corner)
                 .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant))
-                // 选中封面加主色描边（border 画在内容之上，同圆角）
+                // 描边（border 画在内容之上，同圆角）：多选选中的主色描边优先，
+                // 否则套用统计页选的连续打卡封面边框
                 .then(
-                    if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, corner) else Modifier,
+                    when {
+                        selected -> Modifier.border(3.dp, MaterialTheme.colorScheme.primary, corner)
+                        coverFrame != null -> Modifier.coverFrameBorder(coverFrame, corner)
+                        else -> Modifier
+                    },
                 )
                 .clickable(onClick = {
                     if (selectionMode) {

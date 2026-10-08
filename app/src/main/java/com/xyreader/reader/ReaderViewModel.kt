@@ -1,6 +1,7 @@
 package com.xyreader.reader
 
 import android.app.Application
+import android.os.SystemClock
 import android.util.LruCache
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
@@ -23,7 +24,10 @@ import com.xyreader.core.PageSource
 import com.xyreader.core.ReadBackground
 import com.xyreader.core.ReaderPrefs
 import com.xyreader.data.AppGraph
+import com.xyreader.data.ArkDatabase
 import com.xyreader.feedback.AppLog
+import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -103,6 +107,10 @@ class ReaderViewModel(
     private val initialPage: Int,
     private val startFromBeginning: Boolean = false,
     app: Application,
+    /** 阅读计时用的单调时钟（毫秒）；测试可注入假时钟 */
+    elapsedClock: () -> Long = { SystemClock.elapsedRealtime() },
+    /** 「今天」的本地日期；测试可注入固定日期 */
+    private val todayProvider: () -> LocalDate = { LocalDate.now() },
 ) : ViewModel() {
 
     private val appContext = app.applicationContext
@@ -137,6 +145,28 @@ class ReaderViewModel(
 
     /** 防抖保存进度的任务 */
     private var saveJob: Job? = null
+
+    // ---------- 阅读统计（时长 / 字数 / 页数） ----------
+
+    private val statsDao = ArkDatabase.getInstance(appContext).readingStatsDao()
+    private val readingTimer = ReadingTimeTracker(elapsedClock)
+
+    /** 到达新页的计数器；每次（重新）打开数据源时按新起始页重建，重排不会重复计入 */
+    @Volatile
+    private var progressCounter: ReadingProgressCounter? = null
+
+    /** 已累计、尚未落库的字数 / 页数（时长在 [readingTimer] 里） */
+    private val pendingChars = AtomicLong()
+    private val pendingPages = AtomicInteger()
+
+    /** 落库与读取今日总量串行，避免「刚取走待写量、还没写入」时显示偏少 */
+    private val flushMutex = Mutex()
+    private var statsTicker: Job? = null
+
+    private val _todayReadingMs = MutableStateFlow(0L)
+
+    /** 今日累计阅读时长（毫秒）：已落库部分 + 计时器里尚未落库的部分，约每 10 秒刷新 */
+    val todayReadingMs: StateFlow<Long> = _todayReadingMs.asStateFlow()
 
     /** 当前已打开数据源所用的样式键；与最新配置不一致时触发重建 */
     private var openedStyleKey: String? = null
@@ -377,6 +407,12 @@ class ReaderViewModel(
                 }
                 ).coerceIn(0, (count - 1).coerceAtLeast(0))
             currentPage = start
+            val novel = src as? NovelPageSource
+            progressCounter = ReadingProgressCounter(
+                startPage = start,
+                textBook = novel != null,
+                charsOfPage = { page -> novel?.pageCharCount(page) ?: 0L },
+            )
             // 记录本次打开所用样式键，样式监听据此判断是否需要再次重建
             openedStyleKey = styleKey(prefs)
             // 缓存按页码作键且属于当前 ViewModel：重建时清空，避免跨样式复用旧位图。
@@ -626,6 +662,11 @@ class ReaderViewModel(
      */
     fun onPageChanged(page: Int) {
         currentPage = page
+        readingTimer.onInteraction()
+        progressCounter?.onPage(page)?.let { gain ->
+            if (gain.chars > 0) pendingChars.addAndGet(gain.chars)
+            if (gain.pages > 0) pendingPages.addAndGet(gain.pages)
+        }
         pruneAround(page)
         preloadAround(page)
         val count = _state.value.pageCount
@@ -635,6 +676,82 @@ class ReaderViewModel(
             delay(500)
             runCatching { repository.saveProgress(bookId, page, count) }
         }
+    }
+
+    /** 阅读器回到前台：开始计时，并启动「刷新今日显示 / 每 30 秒落库」的定时器 */
+    fun onResume() {
+        readingTimer.onResume()
+        statsTicker?.cancel()
+        statsTicker = viewModelScope.launch {
+            var tick = 0
+            refreshTodayReading()
+            while (true) {
+                delay(STATS_TICK_MS)
+                tick++
+                if (tick % FLUSH_EVERY_TICKS == 0) flushReading() else refreshTodayReading()
+            }
+        }
+    }
+
+    /** 阅读器离开前台：停表并立即落库一次 */
+    fun onPause() {
+        statsTicker?.cancel()
+        statsTicker = null
+        readingTimer.onPause()
+        // 用 cleanupScope：随后可能紧接 onCleared，viewModelScope 那时已取消
+        cleanupScope.launch { flushReading() }
+    }
+
+    /** 用户触摸等交互（由界面层转发），重置 2 分钟无操作的计时截止 */
+    fun onInteraction() {
+        readingTimer.onInteraction()
+    }
+
+    /**
+     * 把计时器与计数器里的待写增量累加进今天那一行。
+     * 写入在 NonCancellable + IO 里完成，离开页面时的取消不会丢数据；失败则放回待写量，下次再写。
+     * 跨过零点的一段按落库时刻的日期记入当天，误差不超过一个落库周期。
+     */
+    private suspend fun flushReading() {
+        flushMutex.withLock {
+            withContext(NonCancellable + Dispatchers.IO) {
+                val date = todayProvider()
+                val ms = readingTimer.drain()
+                val chars = pendingChars.getAndSet(0)
+                val pages = pendingPages.getAndSet(0)
+                if (ms > 0 || chars > 0 || pages > 0) {
+                    try {
+                        statsDao.addDelta(date.toString(), ms, chars, pages)
+                    } catch (e: Exception) {
+                        readingTimer.restore(ms)
+                        pendingChars.addAndGet(chars)
+                        pendingPages.addAndGet(pages)
+                        AppLog.w(TAG, "阅读统计落库失败，稍后重试 bookId=$bookId", e)
+                    }
+                }
+                updateTodayReadingLocked(date)
+            }
+        }
+    }
+
+    private suspend fun refreshTodayReading() {
+        flushMutex.withLock {
+            withContext(Dispatchers.IO) { updateTodayReadingLocked(todayProvider()) }
+        }
+    }
+
+    /** 调用方持有 [flushMutex]：今日显示 = 库里今天的时长 + 计时器未落库部分 */
+    private suspend fun updateTodayReadingLocked(date: LocalDate) {
+        val persisted = try {
+            statsDao.get(date.toString())?.durationMs ?: 0L
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 读失败时保持上次显示，不打断阅读
+            AppLog.w(TAG, "读取今日阅读时长失败 bookId=$bookId", e)
+            return
+        }
+        _todayReadingMs.value = persisted + readingTimer.peekPending()
     }
 
     /** 收藏 / 取消收藏（结果经 books Flow 刷新回 UI） */
@@ -694,6 +811,9 @@ class ReaderViewModel(
             }
             val count = _state.value.pageCount
             if (count > 0) runCatching { repository.saveProgress(bookId, currentPage, count) }
+            // 兜底：界面没来得及走 onPause（如进程内直接销毁）时，剩余的时长也要写入
+            readingTimer.onPause()
+            flushReading()
             cleanupScope.cancel()
         }
     }
@@ -701,6 +821,10 @@ class ReaderViewModel(
     private companion object {
         const val TAG = "ReaderViewModel"
         const val PAGE_UI_RADIUS = 3
+
+        /** 今日显示刷新间隔；每 [FLUSH_EVERY_TICKS] 次落库一次（即 30 秒） */
+        const val STATS_TICK_MS = 10_000L
+        const val FLUSH_EVERY_TICKS = 3
     }
 }
 

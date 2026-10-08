@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -68,8 +69,11 @@ import com.xyreader.core.LibraryRepository
 import com.xyreader.core.QuickRead
 import com.xyreader.core.ShelfSection
 import com.xyreader.core.SortOption
+import com.xyreader.data.ArkDatabase
 import com.xyreader.data.LibraryLayout
 import com.xyreader.data.LibraryLayoutStore
+import com.xyreader.stats.computeReadingStats
+import java.time.LocalDate
 import kotlinx.coroutines.launch
 
 /**
@@ -81,6 +85,7 @@ fun ShelfScreen(
     onOpenBook: (Long) -> Unit,
     onOpenSection: (ShelfSection) -> Unit,
     onOpenBookmarks: () -> Unit,
+    onOpenStats: () -> Unit,
     onOpenGroup: (Long) -> Unit,
     onOpenGroupManage: () -> Unit,
     onOpenReader: (Long) -> Unit,
@@ -99,6 +104,13 @@ fun ShelfScreen(
     val allBooks by repo.books.collectAsStateWithLifecycle(initialValue = emptyList())
     val bookmarks by repo.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // 阅读统计入口的副标题：当前连续打卡天数（来自每日阅读记录）
+    val dailyFlow = remember(context) { ArkDatabase.getInstance(context).readingStatsDao().observeAll() }
+    val dailyRecords by dailyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val currentStreak = remember(dailyRecords) {
+        computeReadingStats(dailyRecords, LocalDate.now()).currentStreak
+    }
 
     // 计数（真实数据；历史 = 有过阅读记录的书）
     val favoriteCount = allBooks.count { it.isFavorite }
@@ -155,6 +167,7 @@ fun ShelfScreen(
                         favorite = favoriteCount,
                     )
                 }
+                item { ShelfStatsEntry(currentStreak = currentStreak, onClick = onOpenStats) }
                 item {
                     ShelfViewModeSwitch(
                         cabinetSelected = layout.shelfCabinetView,
@@ -442,6 +455,59 @@ private fun ShelfSummaryRow(total: Int, reading: Int, favorite: Int) {
         SummaryCard("书库", total, Modifier.weight(1f))
         SummaryCard("正在读", reading, Modifier.weight(1f))
         SummaryCard("收藏", favorite, Modifier.weight(1f))
+    }
+}
+
+/** 阅读统计入口：横向卡片，副标题显示当前连续打卡天数；书柜 / 网格两种视图都可见。 */
+@Composable
+private fun ShelfStatsEntry(currentStreak: Int, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(21.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(39.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.DateRange,
+                    contentDescription = null,
+                    modifier = Modifier.size(21.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "阅读统计",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    if (currentStreak > 0) "已连续打卡 $currentStreak 天" else "每天读满 5 分钟自动打卡",
+                    modifier = Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

@@ -287,6 +287,25 @@ class NovelPageSource internal constructor(
         return pageStartOffsets[page]
     }
 
+    /**
+     * 本页包含的正文字数（阅读统计用）：下一个文本页起点 − 本页起点，
+     * 末页用全书文本总长收尾；整页图片页为 0，页码越界也为 0。
+     * 各文本页的字数之和等于「末页终点 − 首页起点」，不会重复计入。
+     */
+    fun pageCharCount(page: Int): Long {
+        if (page !in pages.indices || pages[page].imageBytes != null) return 0L
+        var next = page + 1
+        while (next < pages.size && pages[next].imageBytes != null) next++
+        val end = if (next < pages.size) {
+            pageStartOffsets[next]
+        } else if (paragraphs.isEmpty()) {
+            0L
+        } else {
+            paragraphStartOffsets.last() + paragraphs.last().text.length
+        }
+        return (end - pageStartOffsets[page]).coerceAtLeast(0L)
+    }
+
     /** 根据之前保存的字符偏移定位新排版中的邻近页。 */
     fun pageForCharOffset(offset: Long): Int {
         if (pageStartOffsets.isEmpty()) return 0

@@ -74,6 +74,7 @@ private object Routes {
     const val SUPPORT = "settings/support"
     const val GROUP_BOOKS = "shelf/group/{groupId}"
     const val BOOKMARKS = "bookmarks"
+    const val STATS = "stats"
     const val SHELF_LIST = "shelf/list/{section}"
     const val BOOK_DETAIL = "book/{bookId}"
     const val READER = "reader/{bookId}?page={page}&restart={restart}"
@@ -190,6 +191,7 @@ fun ArkNavHost() {
                         onShelf = { nav.navigateTab(Routes.SHELF) },
                         onOpenSection = { section -> nav.navigate("shelf/list/${section.name}") },
                         onOpenBookmarks = { nav.navigate(Routes.BOOKMARKS) },
+                        onOpenStats = { nav.navigate(Routes.STATS) },
                         onOpenGroup = { groupId -> nav.navigate("shelf/group/$groupId") },
                         onContinueReading = { bookId -> nav.openBook(bookId, page = 0) },
                         onSettings = { nav.navigate(Routes.SETTINGS) },
@@ -229,6 +231,7 @@ fun ArkNavHost() {
                         nav.navigate("shelf/list/${section.name}")
                     },
                     onOpenBookmarks = { nav.navigate(Routes.BOOKMARKS) },
+                    onOpenStats = { nav.navigate(Routes.STATS) },
                     onOpenGroup = { groupId -> nav.navigate("shelf/group/$groupId") },
                     onOpenGroupManage = { nav.navigate(Routes.GROUPS) },
                 )
@@ -321,6 +324,11 @@ fun ArkNavHost() {
                     onBack = { nav.popBackStack() },
                     onOpenBook = { bookId -> nav.openBookDetail(bookId) },
                 )
+            }
+
+            // 阅读统计（时长 / 打卡 / 徽章 / 封面边框）
+            composable(Routes.STATS) {
+                ReadingStatsScreen(onBack = { nav.popBackStack() })
             }
 
             // 书签列表

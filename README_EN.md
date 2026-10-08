@@ -31,6 +31,7 @@
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
 - **Book cards**: three columns up to 1120dp wide and four above; each cover shows an integer progress badge, including `0%` for unread books;
 - **Shelf layouts**: switch between the wooden cabinet and grid views; the choice is saved;
+- **Reading stats & check-in**: the Shelf page's **Reading stats** shows total time / characters / pages and the daily average; reading 5 minutes in a day checks you in automatically, and 3 / 7 / 30 / 100 / 365 consecutive days unlock bronze / silver / gold / amethyst / rainbow badges and matching cover frames; the reader toolbar shows "Today N min" (all data stays on your device);
 - **Wide-screen navigation**: a collapsible side rail appears at 800dp and wider, while the reader uses the full width; phones keep the Home / Shelf bottom bar;
 - **Appearance**: Settings offers eight accent colors and System / Light / Dark theme modes;
 - Book detail page: table of contents, page count, and reading progress at a glance.
@@ -78,6 +79,15 @@ The `outputs/` directory is not tracked (APKs can be rebuilt from source at any 
 
 Local Release builds fall back to the debug key when release signing is not configured.
 
+### Publishing a release
+
+1. Bump `appVersionName` and `versionCode` in `app/build.gradle.kts`;
+2. (Optional) write `docs/release-notes/v<version>.md` as the release notes;
+3. Merge to `main`;
+4. Open [Actions → "发布新版本"](https://github.com/TerryYu12/xy-reader/actions/workflows/release.yml) (the release workflow) → Run workflow.
+
+When it finishes, the workflow has run the tests, built a signed APK, and created the tag and GitHub Release automatically; the in-app updater will detect the new version.
+
 ## Usage guide
 
 ### 1. Import local books
@@ -124,7 +134,7 @@ Open from the reading toolbar, or go to **Settings → Reading configuration**. 
 
 - **Nothing is uploaded by default**: no ads, no analytics. Network access is used only for the remote repositories you configure, update checks, and bug reports you submit yourself;
 - A bug report is sent only when you fill in a description under Settings → Bug report and submit it: the description, app version, device info and the local app log (passwords, tokens and URL parameters removed) go to the author's private GitHub repository;
-- Library data, reading progress and bookmarks are stored only on your device;
+- Library data, reading progress, bookmarks, reading time and check-in records are stored only on your device;
 - Remote repository addresses and credentials are stored only on your device;
 - Google Drive access uses the `drive.readonly` scope only — the app cannot modify anything in your drive.
 
