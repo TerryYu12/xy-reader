@@ -178,6 +178,24 @@ private fun Modifier.topHairline(color: Color, inset: Dp = 0.dp): Modifier = dra
 /** 页内双击放大的目标倍数 */
 private const val PAGE_ZOOM = 2.5f
 
+/**
+ * 直接定位到目标页，不播放滚动动画（动画会快速滑过中间所有页，触发无谓的渲染与预载）。
+ *
+ * 跳转一律走这里：进度条松手、目录/书签、上一章/下一章。仅「点击两侧翻一页（±1）」才用带动画的
+ * `turnTo`，以保留相邻翻页的视觉反馈。
+ * 目标页收敛到 `[0, pageCount - 1]`；上下模式滚动 [listState]，其余模式切换 [pagerState]。
+ */
+internal suspend fun jumpToPage(
+    upDown: Boolean,
+    pagerState: PagerState,
+    listState: LazyListState,
+    pageCount: Int,
+    target: Int,
+) {
+    val safeTarget = target.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+    if (upDown) listState.scrollToItem(safeTarget) else pagerState.scrollToPage(safeTarget)
+}
+
 /** 沿 ContextWrapper 链找宿主 Activity；拿不到时返回 null（调用方判空降级） */
 private tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
     is ComponentActivity -> this
@@ -408,14 +426,11 @@ fun ReaderScreen(
                 var showDirectory by remember { mutableStateOf(false) }
                 // 弹层 tab 记忆：关闭再打开仍停留在上次的 tab
                 var directoryTab by remember { mutableIntStateOf(0) }
-                // 目录/书签跳页：立即收起弹层，同时滚动到目标页（越界收敛防脏数据）
+                // 目录/书签跳页：立即收起弹层，同时直接定位到目标页（不播动画；越界收敛防脏数据）
                 val jumpTo: (Int) -> Unit = { target ->
                     showDirectory = false
                     scope.launch {
-                        val last = (state.pageCount - 1).coerceAtLeast(0)
-                        val safeTarget = target.coerceIn(0, last)
-                        if (upDown) verticalListState.animateScrollToItem(safeTarget)
-                        else pagerState.animateScrollToPage(safeTarget)
+                        jumpToPage(upDown, pagerState, verticalListState, state.pageCount, target)
                     }
                 }
                 ReaderPagerArea(
@@ -503,6 +518,7 @@ private fun ReaderPagerArea(
     var showCopyDialog by remember { mutableStateOf(false) }
     val isTextNovel by viewModel.isTextNovel.collectAsState()
 
+    /** 相邻翻页（点击两侧 ±1 页）：保留滚动动画。跨多页的跳转请用 [jumpTo]。 */
     fun turnTo(target: Int) {
         if (target in 0 until pageCount) {
             scope.launch {
@@ -510,6 +526,11 @@ private fun ReaderPagerArea(
                 else pagerState.animateScrollToPage(target)
             }
         }
+    }
+
+    /** 进度条松手、上一章/下一章：直接定位，不播动画、不滑过中间页 */
+    fun jumpTo(target: Int) {
+        scope.launch { jumpToPage(upDown, pagerState, verticalListState, pageCount, target) }
     }
 
     /** 双击页内放大：1x ↔ 2.5x 平滑动画；缩回 1x 时清零平移 */
@@ -857,11 +878,7 @@ private fun ReaderPagerArea(
                         },
                         onValueChangeFinished = {
                             sliderActive = false
-                            scope.launch {
-                                val target = sliderPage.coerceIn(0, last)
-                                if (upDown) verticalListState.animateScrollToItem(target)
-                                else pagerState.scrollToPage(target)
-                            }
+                            jumpTo(sliderPage)
                         },
                         valueRange = 0f..last.toFloat().coerceAtLeast(0f),
                         modifier = Modifier
@@ -890,7 +907,7 @@ private fun ReaderPagerArea(
                         label = "上一章",
                         enabled = prevEnabled,
                         modifier = Modifier.weight(1f),
-                        onClick = { prevTarget?.let { turnTo(it) } },
+                        onClick = { prevTarget?.let { jumpTo(it) } },
                     )
                     ReaderBarIconButton(
                         icon = Icons.Outlined.Brightness6,
@@ -936,7 +953,7 @@ private fun ReaderPagerArea(
                         label = "下一章",
                         enabled = nextTarget != null,
                         modifier = Modifier.weight(1f),
-                        onClick = { nextTarget?.let { turnTo(it) } },
+                        onClick = { nextTarget?.let { jumpTo(it) } },
                     )
                 }
             }
