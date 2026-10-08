@@ -79,6 +79,15 @@ The `outputs/` directory is not tracked (APKs can be rebuilt from source at any 
 
 Local Release builds fall back to the debug key when release signing is not configured.
 
+### Publishing a release
+
+1. Bump `appVersionName` and `versionCode` in `app/build.gradle.kts`;
+2. (Optional) write `docs/release-notes/v<version>.md` as the release notes;
+3. Merge to `main`;
+4. Open [Actions → "发布新版本"](https://github.com/TerryYu12/xy-reader/actions/workflows/release.yml) (the release workflow) → Run workflow.
+
+When it finishes, the workflow has run the tests, built a signed APK, and created the tag and GitHub Release automatically; the in-app updater will detect the new version.
+
 ## Usage guide
 
 ### 1. Import local books

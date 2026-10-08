@@ -1,0 +1,151 @@
+name: 发布新版本
+
+# 触发：仅在 Actions 页手动 Run workflow（只能从 main 发布）
+# 流程：校验分支与版本 → 单元测试 → 正式签名打包 → 创建 tag 与 GitHub Release
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "更新说明（可选；留空则用 docs/release-notes/v<版本>.md，没有该文件则自动生成）"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+# 同一时间只允许一个发布任务，且不取消进行中的发布
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 校验发布分支
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::只能从 main 发布（当前：$GITHUB_REF）"
+            exit 1
+          fi
+
+      - name: 检出代码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: 读取版本并检查 tag
+        id: ver
+        run: |
+          VERSION=$(grep -oP 'appVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          if [ -z "$VERSION" ]; then
+            echo "::error::无法从 app/build.gradle.kts 读取 appVersionName"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$TAG")" ]; then
+            echo "::error::${TAG} 已发布，请先在 app/build.gradle.kts 升级 appVersionName 与 versionCode"
+            exit 1
+          fi
+          echo "将发布 ${TAG}"
+
+      - name: 校验发布签名 secrets（缺失则失败，不回退调试签名）
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          MISSING=""
+          [ -n "$KEYSTORE_BASE64" ]   || MISSING="$MISSING ANDROID_KEYSTORE_BASE64"
+          [ -n "$KEYSTORE_PASSWORD" ] || MISSING="$MISSING ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ]         || MISSING="$MISSING ANDROID_KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ]      || MISSING="$MISSING ANDROID_KEY_PASSWORD"
+          if [ -n "$MISSING" ]; then
+            echo "::error::缺少签名 secrets：${MISSING}。正式发布不允许使用调试签名，请先在仓库 Settings → Secrets 中配置"
+            exit 1
+          fi
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 准备 Gradle（含依赖缓存）
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: 安装 Android SDK 组件
+        run: |
+          SDKMGR=$(command -v sdkmanager || echo "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager")
+          yes | "$SDKMGR" --licenses > /dev/null || true
+          yes | "$SDKMGR" "platforms;android-36" "build-tools;35.0.0" > /dev/null
+
+      - name: 单元测试
+        run: ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: 配置发布签名
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release-keystore.jks
+          printf 'storeFile=release-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+          echo "已写入发布签名配置（正式签名）"
+
+      - name: 构建 Release APK
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - name: 整理产物命名（XY-READER-<版本>.apk）
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "XY-READER-${VERSION}.apk"
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          # 经 env 传入，避免把用户输入直接内插进脚本（防注入）
+          NOTES: ${{ inputs.notes }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+            printf '%s\n' "$NOTES" > "$NOTES_FILE"
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+            echo "更新说明：使用手动输入"
+          elif [ -f "docs/release-notes/${TAG}.md" ]; then
+            NOTES_ARGS=(--notes-file "docs/release-notes/${TAG}.md")
+            echo "更新说明：使用 docs/release-notes/${TAG}.md"
+          else
+            NOTES_ARGS=(--generate-notes)
+            echo "更新说明：自动生成"
+          fi
+          gh release create "$TAG" "XY-READER-${VERSION}.apk" \
+            --target "$GITHUB_SHA" \
+            --title "XY-READER ${VERSION}" \
+            --latest \
+            "${NOTES_ARGS[@]}"
+
+      - name: 写入发布摘要
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          echo "### 已发布 ${TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 失败时上传测试报告
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: ignore

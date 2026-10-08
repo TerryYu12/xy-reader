@@ -79,6 +79,15 @@
 
 本地构建 Release APK 时，若未配置正式签名，构建会回退到 debug 签名。
 
+### 发布新版本
+
+1. 在 `app/build.gradle.kts` 中升级 `appVersionName` 与 `versionCode`；
+2. （可选）编写 `docs/release-notes/v<版本>.md` 作为本次更新说明；
+3. 合并到 `main`；
+4. 打开 [Actions →「发布新版本」](https://github.com/TerryYu12/xy-reader/actions/workflows/release.yml) → Run workflow。
+
+完成后会自动运行测试、使用正式签名打包，并生成 tag、Release 与签名 APK，App 内置更新器即可检测到新版本。
+
 ## 使用指南
 
 ### 1. 导入本地书籍
