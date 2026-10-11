@@ -67,11 +67,14 @@ class SevenZipPageSource private constructor(
                     nameOf = { it.name },
                 )
                 if (entries.isEmpty()) {
+                    val summaryNames = sevenZip.entries.asSequence().map { it.name.orEmpty() }.toList()
                     runCatching { sevenZip.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 7z 归档异常", it) }
                     runCatching { pfd.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
-                    throw IllegalStateException("7z 包内没有图片页面: ${book.uri}")
+                    throw IllegalStateException(
+                        PageSources.noImagesMessage("7z 包内", book.uri, summaryNames.asSequence()),
+                    )
                 }
                 return SevenZipPageSource(sevenZip, pfd, entries)
             } catch (t: Throwable) {

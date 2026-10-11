@@ -62,9 +62,12 @@ class RarPageSource private constructor(
                 nameOf = { it.displayPath() },
             )
             if (headers.isEmpty()) {
+                val summaryNames = archive.fileHeaders.map { it.displayPath() }
                 runCatching { archive.close() }
                     .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 RAR 归档异常", it) }
-                throw IllegalStateException("RAR 包内没有图片页面: ${book.uri}")
+                throw IllegalStateException(
+                    PageSources.noImagesMessage("RAR 包内", book.uri, summaryNames.asSequence()),
+                )
             }
             return RarPageSource(archive, headers)
         }

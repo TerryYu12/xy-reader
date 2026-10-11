@@ -67,11 +67,14 @@ class TarPageSource private constructor(
                     nameOf = { it.name },
                 )
                 if (entries.isEmpty()) {
+                    val summaryNames = tarFile.entries.asSequence().map { it.name.orEmpty() }.toList()
                     runCatching { tarFile.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空 TAR 归档异常", it) }
                     runCatching { pfd.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
-                    throw IllegalStateException("TAR 包内没有图片页面: ${book.uri}")
+                    throw IllegalStateException(
+                        PageSources.noImagesMessage("TAR 包内", book.uri, summaryNames.asSequence()),
+                    )
                 }
                 return TarPageSource(tarFile, pfd, entries)
             } catch (t: Throwable) {
