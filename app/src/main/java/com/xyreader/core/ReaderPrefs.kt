@@ -87,7 +87,10 @@ data class ReaderPrefs(
     val screenOrientation: ScreenOrientation = ScreenOrientation.SYSTEM,
     /** 阅读背景色 */
     val readBackground: ReadBackground = ReadBackground.BLACK,
-    /** 阅读亮度（0.01-1.0，作用于本 App 窗口）；null = 跟随系统 */
+    /**
+     * 阅读亮度（作用于本 App 窗口）；null = 跟随系统。
+     * 0.01-1.0 为窗口亮度；-0.4-0 为比系统最低亮度还暗（叠加黑色遮罩），详见 [BrightnessMath]。
+     */
     val brightness: Float? = null,
     /** 点击翻页：开启时左右分区点击翻页；关闭时点击只呼出/隐藏工具栏 */
     val tapTurnPage: Boolean = true,

@@ -140,6 +140,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xyreader.core.BookmarkEntity
+import com.xyreader.core.BrightnessMath
 import com.xyreader.core.Chapter
 import com.xyreader.core.ImageScale
 import com.xyreader.core.MangaDirection
@@ -274,14 +275,17 @@ fun ReaderScreen(
     }
 
     // —— 亮度：配置值作用于本 App 窗口（0.01-1.0）；null（跟随系统）设 -1 即系统默认。
+    //    配置值为负（超低亮度）时窗口亮度压到最低，再给整个窗口盖一层黑色遮罩，比系统最低亮度还暗。
     //    离开阅读器或值变化时先恢复系统亮度再按新值应用，避免亮度"泄漏"到其他页面 ——
     DisposableEffect(prefs.brightness) {
+        val brightness = prefs.brightness
         try {
             context.findActivity()?.window?.let { window ->
                 window.attributes = window.attributes.apply {
-                    screenBrightness = prefs.brightness?.coerceIn(0.01f, 1f)
+                    screenBrightness = brightness?.let(BrightnessMath::windowBrightness)
                         ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                 }
+                applyDim(window.decorView, BrightnessMath.dimAlpha(brightness))
             }
         } catch (_: Exception) {
         }
@@ -291,11 +295,14 @@ fun ReaderScreen(
                     window.attributes = window.attributes.apply {
                         screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                     }
+                    applyDim(window.decorView, 0f)
                 }
             } catch (_: Exception) {
             }
         }
     }
+    // 对话框 / 底部面板是独立窗口，遮罩要各自盖一层才不会在超低亮度下突然变亮
+    val dimAlpha = BrightnessMath.dimAlpha(prefs.brightness)
 
     // —— 屏幕常亮：按配置给宿主窗口加/清 FLAG_KEEP_SCREEN_ON；离开阅读器或关闭开关时清掉，
     //    拿不到 Activity 的环境 try-catch 静默降级 ——
@@ -492,6 +499,7 @@ fun ReaderScreen(
                         onTabChange = { directoryTab = it },
                         onJumpTo = jumpTo,
                         onRemoveBookmark = viewModel::removeBookmark,
+                        dimAlpha = dimAlpha,
                         onDismiss = { showDirectory = false },
                     )
                 }
@@ -530,6 +538,8 @@ private fun ReaderPagerArea(
     val currentPage = if (upDown) verticalListState.firstVisibleItemIndex else pagerState.currentPage
     // 页面与页边距（ContentScale.Fit 留白）统一使用配置的阅读背景色
     val bgColor = prefs.readBackground.toComposeColor()
+    // 底部面板 / 弹窗是独立窗口，超低亮度的遮罩要各自盖一层（主窗口的遮罩在 ReaderScreen 里）
+    val dimAlpha = BrightnessMath.dimAlpha(prefs.brightness)
 
     var toolbarVisible by remember { mutableStateOf(false) }
     var sliderActive by remember { mutableStateOf(false) }
@@ -1059,6 +1069,7 @@ private fun ReaderPagerArea(
             ReaderSettingsSheet(
                 prefs = prefs,
                 onUpdate = viewModel::updatePrefs,
+                dimAlpha = dimAlpha,
                 onDismiss = { showSettings = false },
             )
         }
@@ -1068,6 +1079,7 @@ private fun ReaderPagerArea(
             PageTextCopyDialog(
                 viewModel = viewModel,
                 page = currentPage,
+                dimAlpha = dimAlpha,
                 onDismiss = { showCopyDialog = false },
             )
         }
@@ -1163,7 +1175,7 @@ private fun BrightnessPopoverCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "${(sliderValue * 100).roundToInt()}%",
+                    text = BrightnessMath.percentLabel(sliderValue),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -1190,7 +1202,8 @@ private fun BrightnessPopoverCard(
                     onBrightness(value)
                 },
                 onValueChangeFinished = { dragging = false },
-                valueRange = 0.01f..1f,
+                // 左侧负值区 = 比系统最低亮度还暗（遮罩），见 BrightnessMath
+                valueRange = BrightnessMath.MIN..BrightnessMath.MAX,
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
@@ -1198,6 +1211,13 @@ private fun BrightnessPopoverCard(
                     inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
                 ),
             )
+            BrightnessMath.hint(sliderValue)?.let { hint ->
+                Text(
+                    text = hint,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
     }
 }
@@ -1208,7 +1228,12 @@ private fun BrightnessPopoverCard(
  * 非文字源 / 排版未就绪时给出空态提示。
  */
 @Composable
-private fun PageTextCopyDialog(viewModel: ReaderViewModel, page: Int, onDismiss: () -> Unit) {
+private fun PageTextCopyDialog(
+    viewModel: ReaderViewModel,
+    page: Int,
+    dimAlpha: Float,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     var text by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -1217,6 +1242,7 @@ private fun PageTextCopyDialog(viewModel: ReaderViewModel, page: Int, onDismiss:
         loading = false
     }
     Dialog(onDismissRequest = onDismiss) {
+        DimThisWindow(dimAlpha)
         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
             Column(
                 modifier = Modifier
@@ -1282,6 +1308,7 @@ private fun PageTextCopyDialog(viewModel: ReaderViewModel, page: Int, onDismiss:
 private fun ReaderSettingsSheet(
     prefs: ReaderPrefs,
     onUpdate: ((ReaderPrefs) -> ReaderPrefs) -> Unit,
+    dimAlpha: Float,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1295,6 +1322,7 @@ private fun ReaderSettingsSheet(
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = { SheetGrabber() },
     ) {
+        DimThisWindow(dimAlpha)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1619,12 +1647,14 @@ private fun DirectoryDialog(
     onTabChange: (Int) -> Unit,
     onJumpTo: (Int) -> Unit,
     onRemoveBookmark: (Long) -> Unit,
+    dimAlpha: Float,
     onDismiss: () -> Unit,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        DimThisWindow(dimAlpha)
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.surface,

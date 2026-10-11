@@ -38,4 +38,19 @@ class PreferencesRoundTripTest {
         assertFalse(LibraryLayoutStore(context).layout.first().homeManualOrder)
         assertEquals(listOf(3L, 1L, 2L), LibraryLayoutStore(context).layout.first().homeBookOrder)
     }
+
+    @Test fun brightnessRoundTripsIncludingBelowSystemMinimum() = runBlocking {
+        val store = ReaderPrefsStore(RuntimeEnvironment.getApplication())
+        for (value in listOf(0.35f, 0.01f, -0.2f, BrightnessMath.MIN)) {
+            store.set(ReaderPrefs(brightness = value))
+            assertEquals(value, store.prefs.first().brightness)
+        }
+        // 越界写入会被约束回合法范围；null 仍是「跟随系统」
+        store.set(ReaderPrefs(brightness = -9f))
+        assertEquals(BrightnessMath.MIN, store.prefs.first().brightness)
+        store.set(ReaderPrefs(brightness = 9f))
+        assertEquals(BrightnessMath.MAX, store.prefs.first().brightness)
+        store.set(ReaderPrefs(brightness = null))
+        assertNull(store.prefs.first().brightness)
+    }
 }
