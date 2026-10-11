@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.xyreader.core.BrightnessMath
 import com.xyreader.core.ImageQuality
 import com.xyreader.core.ImageScale
 import com.xyreader.core.MangaDirection
@@ -33,7 +34,10 @@ private val KEY_SCREEN_ORIENTATION = stringPreferencesKey("screen_orientation")
 /** 阅读背景色：存 ReadBackground.name，缺失/非法值回退纯黑 */
 private val KEY_READ_BACKGROUND = stringPreferencesKey("read_background")
 
-/** 阅读亮度：存 Float.toString（如 "0.35"）；空串或缺失 = 跟随系统（null） */
+/**
+ * 阅读亮度：存 Float.toString（如 "0.35"）；空串或缺失 = 跟随系统（null）。
+ * 负值（-0.4..0）= 比系统最低亮度还暗，见 [BrightnessMath]。
+ */
 private val KEY_BRIGHTNESS = stringPreferencesKey("brightness")
 
 /** 点击翻页：缺省 true（未设置时保持历史行为 = 点击分区翻页） */
@@ -96,11 +100,12 @@ class ReaderPrefsStore(context: Context) {
             mangaDirection = parseEnum(p[KEY_MANGA_DIRECTION], MangaDirection.LTR),
             screenOrientation = parseEnum(p[KEY_SCREEN_ORIENTATION], ScreenOrientation.SYSTEM),
             readBackground = parseEnum(p[KEY_READ_BACKGROUND], ReadBackground.BLACK),
-            // 空串/缺失/非法数字都视为"跟随系统"；合法值约束回 0.01-1.0
+            // 空串/缺失/非法数字都视为"跟随系统"；合法值约束回 BrightnessMath 的取值范围
             brightness = p[KEY_BRIGHTNESS]
                 ?.takeIf { it.isNotBlank() }
                 ?.toFloatOrNull()
-                ?.coerceIn(0.01f, 1f),
+                ?.takeUnless { it.isNaN() }
+                ?.let(BrightnessMath::clamp),
             // 布尔项：未写入过取默认值，与历史存量行为一致
             tapTurnPage = p[KEY_TAP_TURN_PAGE] ?: true,
             doubleTapZoom = p[KEY_DOUBLE_TAP_ZOOM] ?: true,
@@ -152,7 +157,7 @@ class ReaderPrefsStore(context: Context) {
             p[KEY_SCREEN_ORIENTATION] = prefs.screenOrientation.name
             p[KEY_READ_BACKGROUND] = prefs.readBackground.name
             // null（跟随系统）落为空串，读取时空串回 null
-            p[KEY_BRIGHTNESS] = prefs.brightness?.toString().orEmpty()
+            p[KEY_BRIGHTNESS] = prefs.brightness?.let(BrightnessMath::clamp)?.toString().orEmpty()
             p[KEY_TAP_TURN_PAGE] = prefs.tapTurnPage
             p[KEY_DOUBLE_TAP_ZOOM] = prefs.doubleTapZoom
             p[KEY_KEEP_SCREEN_ON] = prefs.keepScreenOn

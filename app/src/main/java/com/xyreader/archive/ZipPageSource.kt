@@ -71,11 +71,15 @@ class ZipPageSource private constructor(
                     nameOf = { it.name },
                 )
                 if (entries.isEmpty()) {
+                    // 关闭前先取条目名做诊断摘要（关闭后 ZipFile 不可再枚举）
+                    val summaryNames = zip.entries.asSequence().map { it.name }.toList()
                     runCatching { zip.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "关闭空压缩包异常", it) }
                     runCatching { pfd.close() }
                         .onFailure { AppLog.w(PAGE_SOURCE_TAG, "回收 pfd 异常", it) }
-                    throw IllegalStateException("压缩包内没有图片页面: ${book.uri}")
+                    throw IllegalStateException(
+                        PageSources.noImagesMessage("压缩包内", book.uri, summaryNames.asSequence()),
+                    )
                 }
                 return ZipPageSource(zip, pfd, entries)
             } catch (t: Throwable) {

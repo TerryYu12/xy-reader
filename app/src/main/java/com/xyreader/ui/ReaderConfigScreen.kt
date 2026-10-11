@@ -57,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xyreader.R
+import com.xyreader.core.BrightnessMath
 import com.xyreader.core.ImageQuality
 import com.xyreader.core.ImageScale
 import com.xyreader.core.MangaDirection
@@ -359,13 +360,27 @@ private fun BrightnessCard(brightness: Float?, onBrightness: (Float?) -> Unit) {
                 sliderValue = value
                 onBrightness(value)
             },
-            valueRange = 0.01f..1f,
+            // 左侧负值区 = 比系统最低亮度还暗（遮罩），见 BrightnessMath
+            valueRange = BrightnessMath.MIN..BrightnessMath.MAX,
         )
         Text(
-            if (brightness == null) "当前：跟随系统" else "当前：${(sliderValue * 100).roundToInt()}%",
+            if (brightness == null) {
+                "当前：跟随系统"
+            } else {
+                "当前：${BrightnessMath.percentLabel(sliderValue)}"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (brightness != null) {
+            BrightnessMath.hint(sliderValue)?.let { hint ->
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

@@ -41,7 +41,7 @@
 - Page modes: left-right pagination / vertical scrolling (great for text novels);
 - Manga direction: Western (left-to-right) / Japanese (right-to-left);
 - Gestures: tap sides to turn pages (can be disabled), double-tap and pinch to zoom;
-- Display: brightness control, keep screen on, orientation lock (system / portrait / landscape);
+- Display: brightness control (can go dimmer than the system minimum, for night reading), keep screen on, orientation lock (system / portrait / landscape);
 - Reading background: pure black / dark gray / eye-care sepia / white;
 - Image scaling: fit screen / fit width;
 - Novel typography: font size, weight, line spacing, margins, letter spacing, first-line indent, chapter starts on a new page;

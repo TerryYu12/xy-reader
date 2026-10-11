@@ -100,6 +100,13 @@ object PageSources {
         .sortedWith { x, y -> naturalCompare(nameOf(x), nameOf(y)) }
         .toList()
 
+    /**
+     * 「没有图片页面」的异常文案：[where] 如「压缩包内」「RAR 包内」，附上条目数量与扩展名分布
+     * （见 [EntrySummary]），反馈日志里一眼能看出为什么一张图都没认出来。
+     */
+    fun noImagesMessage(where: String, uri: String, names: Sequence<String>): String =
+        "${where}没有图片页面（${EntrySummary.describe(names) { isExcludedEntry(it) }}）: $uri"
+
     /** 根级图片分组（与子文件夹混排时）的章节标题 */
     private const val ROOT_CHAPTER_TITLE = "正文"
 
