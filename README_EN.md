@@ -31,7 +31,7 @@
 - **Covers**: extracted automatically from archives, with support for a custom cover filename;
 - **Book cards**: three columns up to 1120dp wide and four above; each cover shows an integer progress badge, including `0%` for unread books;
 - **Shelf layouts**: switch between the wooden cabinet and grid views; the choice is saved;
-- **Reading stats & check-in**: the Shelf page's **Reading stats** shows total time / characters / pages and the daily average; reading 5 minutes in a day checks you in automatically, and 3 / 7 / 30 / 100 / 365 consecutive days unlock bronze / silver / gold / amethyst / rainbow badges and matching cover frames; the reader toolbar shows "Today N min" (all data stays on your device);
+- **Reading stats & check-in**: the Shelf page's **Reading stats** shows total time / characters / pages and the daily average; reading 5 minutes in a day checks you in automatically (with a "Check-in complete" animation near the top of the screen), and 3 / 7 / 30 / 100 / 365 consecutive days unlock bronze / silver / gold / amethyst / rainbow badges and matching cover frames; the reader toolbar shows "Today N min" (all data stays on your device);
 - **Wide-screen navigation**: a collapsible side rail appears at 800dp and wider, while the reader uses the full width; phones keep the Home / Shelf bottom bar;
 - **Appearance**: Settings offers eight accent colors and System / Light / Dark theme modes;
 - Book detail page: table of contents, page count, and reading progress at a glance.
