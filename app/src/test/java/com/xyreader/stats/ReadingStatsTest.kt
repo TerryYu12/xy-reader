@@ -106,6 +106,25 @@ class ReadingStatsTest {
     }
 
     @Test
+    fun streakWithTodayOverridesStoredDurationOfToday() {
+        // 昨天前连续 3 天；库里今天只落了 4 分钟，但计时器里还有没落库的部分，合计刚满 5 分钟
+        val records = streak(today.minusDays(3), 3) + rec(today, 4 * 60_000L, chars = 800)
+        assertEquals(3, computeReadingStats(records, today).currentStreak)
+        assertEquals(4, currentStreakWithToday(records, today, CHECK_IN_THRESHOLD_MS))
+        // 没满阈值时不算今天，仍从昨天起算
+        assertEquals(3, currentStreakWithToday(records, today, CHECK_IN_THRESHOLD_MS - 1))
+    }
+
+    @Test
+    fun streakWithTodayWorksWhenTodayHasNoRowYet() {
+        assertEquals(1, currentStreakWithToday(emptyList(), today, CHECK_IN_THRESHOLD_MS))
+        assertEquals(0, currentStreakWithToday(emptyList(), today, 0L))
+        // 昨天断了：今天满阈值是新的第 1 天
+        val records = streak(today.minusDays(5), 3)
+        assertEquals(1, currentStreakWithToday(records, today, CHECK_IN_THRESHOLD_MS))
+    }
+
+    @Test
     fun tiersUnlockByLongestStreak() {
         fun tiersFor(days: Int) = computeReadingStats(streak(today.minusDays(days.toLong() - 1), days), today)
             .unlockedTiers

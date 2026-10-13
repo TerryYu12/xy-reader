@@ -26,6 +26,8 @@ import com.xyreader.core.ReaderPrefs
 import com.xyreader.data.AppGraph
 import com.xyreader.data.ArkDatabase
 import com.xyreader.feedback.AppLog
+import com.xyreader.stats.CheckInDetector
+import com.xyreader.stats.currentStreakWithToday
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -38,6 +40,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -50,6 +53,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -67,6 +71,12 @@ sealed interface PageUi {
 
 /** 阅读器整体阶段 */
 enum class ReaderPhase { Loading, Ready, Error }
+
+/**
+ * 刚刚打卡成功（今日阅读首次满阈值）。[streak] 是含今天的当前连续打卡天数，算不出时为 0。
+ * 故意不用 data class：每次事件都是新实例，界面据此可靠地重新播放动画。
+ */
+class CheckInEvent(val streak: Int)
 
 /** 阅读器整体 UI 状态（不含逐页位图，位图在 [pages] 里） */
 data class ReaderState(
@@ -167,6 +177,15 @@ class ReaderViewModel(
 
     /** 今日累计阅读时长（毫秒）：已落库部分 + 计时器里尚未落库的部分，约每 10 秒刷新 */
     val todayReadingMs: StateFlow<Long> = _todayReadingMs.asStateFlow()
+
+    private val checkInDetector = CheckInDetector()
+    private val _checkIns = Channel<CheckInEvent>(Channel.BUFFERED)
+
+    /**
+     * 打卡成功事件（今日阅读在本次阅读中首次满阈值）。用带缓冲的 Channel：
+     * 恰好在切到后台时越线的话，事件留着，回到前台界面开始收集时再播动画。
+     */
+    val checkIns: Flow<CheckInEvent> = _checkIns.receiveAsFlow()
 
     /** 当前已打开数据源所用的样式键；与最新配置不一致时触发重建 */
     private var openedStyleKey: String? = null
@@ -751,7 +770,22 @@ class ReaderViewModel(
             AppLog.w(TAG, "读取今日阅读时长失败 bookId=$bookId", e)
             return
         }
-        _todayReadingMs.value = persisted + readingTimer.peekPending()
+        val total = persisted + readingTimer.peekPending()
+        _todayReadingMs.value = total
+        if (checkInDetector.observe(date, total)) announceCheckInLocked(date, total)
+    }
+
+    /** 调用方持有 [flushMutex]：算出含今天的连续天数并发出打卡成功事件；读库失败只是少了天数，不影响动画 */
+    private suspend fun announceCheckInLocked(date: LocalDate, todayMs: Long) {
+        val streak = try {
+            currentStreakWithToday(statsDao.getAll(), date, todayMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "读取连续打卡天数失败 bookId=$bookId", e)
+            0
+        }
+        _checkIns.trySend(CheckInEvent(streak))
     }
 
     /** 收藏 / 取消收藏（结果经 books Flow 刷新回 UI） */
