@@ -30,6 +30,15 @@ fun formatChars(count: Long): String {
 /** 页数文案：「N 页」 */
 fun formatPages(count: Long): String = "${count.coerceAtLeast(0L)} 页"
 
+/**
+ * 打卡成功提示的副标题：「今日阅读已满 5 分钟」，连续 2 天及以上追加「 · 已连续打卡 N 天」。
+ * [streak] ≤ 1（含算不出的 0）时不提连续天数，避免出现「已连续打卡 1 天」这种别扭的话。
+ */
+fun formatCheckInSubtitle(streak: Int, thresholdMs: Long = CHECK_IN_THRESHOLD_MS): String {
+    val base = "今日阅读已满 ${thresholdMs / 60_000L} 分钟"
+    return if (streak >= 2) "$base · 已连续打卡 $streak 天" else base
+}
+
 /** 阅读器底栏「今日 N 分钟」：不足一分钟显示「今日 <1 分钟」，否则向下取整 */
 fun formatTodayMinutes(ms: Long): String {
     val minutes = ms.coerceAtLeast(0L) / 60_000L

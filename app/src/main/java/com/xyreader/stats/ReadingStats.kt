@@ -153,6 +153,17 @@ fun computeReadingStats(records: List<DailyReadingEntity>, today: LocalDate): Re
     )
 }
 
+/**
+ * 把今天的时长按 [todayMs] 覆盖进 [records] 后算出的当前连续打卡天数。
+ * 阅读器里「今日累计」= 库里已落库的部分 + 计时器里还没落库的部分，刚越过打卡线时库里的今天可能还差一截。
+ */
+fun currentStreakWithToday(records: List<DailyReadingEntity>, today: LocalDate, todayMs: Long): Int {
+    val todayKey = today.toString()
+    val base = records.firstOrNull { it.date == todayKey } ?: DailyReadingEntity(date = todayKey)
+    val patched = records.filterNot { it.date == todayKey } + base.copy(durationMs = todayMs)
+    return computeReadingStats(patched, today).currentStreak
+}
+
 /** 历史最长连续 [longestStreak] 天已解锁的档位（断签不收回） */
 fun unlockedTiers(longestStreak: Int): List<StreakTier> =
     StreakTier.entries.filter { it.days <= longestStreak }

@@ -104,6 +104,22 @@ class LibraryInteractionTest {
         }
     }
 
+    @Test fun favoriteBadgeStaysSmallSoItDoesNotCoverTheCover() {
+        compose.setContent {
+            ArkTheme {
+                Box(Modifier.width(105.dp)) {
+                    BookCard(book, emptyList(), {}, {}, {}, {})
+                }
+            }
+        }
+        // 点击热区固定 36dp（不能被 IconButton 的 48dp 最小热区撑大）；
+        // 可见圆底 22dp，在 105dp 宽（三列手机封面）的封面上不超过四分之一宽
+        compose.onNodeWithContentDescription("收藏")
+            .assertWidthIsEqualTo(FAVORITE_HIT_SIZE)
+            .assertHeightIsEqualTo(FAVORITE_HIT_SIZE)
+        assertTrue(FAVORITE_BADGE_SIZE.value / 105f <= 0.25f)
+    }
+
     @Test fun bookCardsShowIntegerProgressOnTheCoverIncludingZeroForUnreadBooks() {
         val readBook = book.copy(id = 8, title = "已读书", totalPages = 100, currentPage = 61)
         val unreadBook = book.copy(id = 9, title = "未读书", totalPages = 0, currentPage = 0)

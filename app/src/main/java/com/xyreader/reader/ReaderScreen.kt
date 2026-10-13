@@ -138,6 +138,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xyreader.core.BookmarkEntity
 import com.xyreader.core.BrightnessMath
@@ -348,6 +349,15 @@ fun ReaderScreen(
         }
     }
 
+    // —— 打卡成功动画：今日阅读首次满阈值时播放。只在界面可见（STARTED）时收集，
+    //    切到后台时越线的事件留在 ViewModel 的缓冲里，回到前台再播 ——
+    var checkInEvent by remember { mutableStateOf<CheckInEvent?>(null) }
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.checkIns.collect { checkInEvent = it }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -505,6 +515,9 @@ fun ReaderScreen(
                 }
             }
         }
+
+        // 打卡成功动画：屏幕偏上，叠在页面与工具栏之上；不拦截触摸
+        CheckInSuccessOverlay(event = checkInEvent, onFinished = { checkInEvent = null })
 
         // Snackbar 置于底部，避开导航栏与底部工具栏
         SnackbarHost(

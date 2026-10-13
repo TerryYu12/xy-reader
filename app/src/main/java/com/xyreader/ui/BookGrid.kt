@@ -88,6 +88,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -102,6 +103,14 @@ import java.io.File
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+// 封面右上角爱心角标：可见圆底 22dp / 图标 13dp；透明点击热区 36dp，居中叠在圆底之上。
+// 热区外缘距封面边 2dp，圆底中心因此落在距边 20dp 处，正好嵌在封面 20dp 圆角的弧心，不会压到圆角外。
+internal val FAVORITE_BADGE_SIZE = 22.dp
+internal val FAVORITE_ICON_SIZE = 13.dp
+internal val FAVORITE_HIT_SIZE = 36.dp
+private val FAVORITE_BADGE_MARGIN = 2.dp
+private val FavoriteBadgeScrim = Color.Black.copy(alpha = 0.38f)
 
 /** 首页或分组页上接收拖入书籍的分类标签。 */
 internal data class BookDropTarget(val key: String, val groupId: Long?, val label: String)
@@ -679,7 +688,7 @@ internal fun BookCard(
                 contentAlignment = Alignment.BottomStart,
             ) { FormatTag(book.format, Modifier.padding(start = 10.dp, bottom = 10.dp)) }
 
-            // 爱心移到封面右上角（圆形半透明底；保留「收藏/取消收藏」contentDescription）；
+            // 爱心在封面右上角（保留「收藏/取消收藏」contentDescription）；
             // 多选态隐藏，改在左上角显示勾选标
             if (selectionMode) {
                 SelectionBadge(
@@ -688,16 +697,25 @@ internal fun BookCard(
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
                 )
             } else {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                    shape = CircleShape,
-                    color = ScrimColor,
+                // 视觉上只是一枚小角标（原来 36dp 的圆钮约占三列封面宽度的三分之一，明显盖住封面）；
+                // 点击热区仍保持 36dp，透明不占视觉，免得小了难点中。不用 IconButton：
+                // 它自带的 48dp 最小热区会让这块不可见的区域更大。
+                Box(
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .padding(FAVORITE_BADGE_MARGIN)
+                        .size(FAVORITE_HIT_SIZE)
+                        .clip(CircleShape)
+                        .clickable(role = Role.Button, onClick = { onToggleFavorite(book) }),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    IconButton(onClick = { onToggleFavorite(book) }, modifier = Modifier.size(36.dp)) {
+                    Box(
+                        modifier = Modifier.size(FAVORITE_BADGE_SIZE).background(FavoriteBadgeScrim, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             if (book.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                             contentDescription = if (book.isFavorite) "取消收藏" else "收藏",
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(FAVORITE_ICON_SIZE),
                             tint = if (book.isFavorite) MaterialTheme.colorScheme.tertiary else Color.White,
                         )
                     }
