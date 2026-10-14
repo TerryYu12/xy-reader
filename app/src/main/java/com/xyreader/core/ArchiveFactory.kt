@@ -73,7 +73,7 @@ object ArchiveFactory {
         if (book.uri.startsWith("gdrive://")) return openGdrive(context, book, style)
         val format = runCatching { BookFormat.valueOf(book.format) }.getOrNull()
         return when (format) {
-            BookFormat.TXT -> NovelPageSource.fromFile(context, book, style)
+            BookFormat.TXT, BookFormat.MD -> NovelPageSource.fromFile(context, book, style)
             BookFormat.CBZ -> ZipPageSource.open(context, book)
             BookFormat.EPUB ->
                 openEpubTextOrFallback(
@@ -112,7 +112,7 @@ object ArchiveFactory {
         val url = buildWebDavUrl(config.baseUrl, ref.rawPath)
         val format = runCatching { BookFormat.valueOf(book.format) }.getOrNull()
         return when (format) {
-            BookFormat.TXT ->
+            BookFormat.TXT, BookFormat.MD ->
                 NovelPageSource.fromWebDavText(context, book, url, config.username, config.password, style)
             BookFormat.CBZ ->
                 RemoteArchiveSources.openRemoteZip(context, book, url, config.username, config.password)
@@ -172,7 +172,7 @@ object ArchiveFactory {
         } ?: throw IllegalStateException("Google Drive 账号不存在，请检查远程仓库设置")
         val format = runCatching { BookFormat.valueOf(book.format) }.getOrNull()
         return when (format) {
-            BookFormat.TXT ->
+            BookFormat.TXT, BookFormat.MD ->
                 NovelPageSource.fromGdriveText(context, book, ref.fileId, account.id, style)
             BookFormat.CBZ ->
                 RemoteGdriveSources.openGdriveZip(context, book, ref.fileId, account.id)

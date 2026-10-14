@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.xyreader.core.BookEntity
+import com.xyreader.core.BookFormat
 import com.xyreader.core.Chapter
 import com.xyreader.core.NovelFontFamily
 import com.xyreader.core.NovelFontWeight
@@ -624,7 +625,11 @@ class NovelPageSource internal constructor(
         fun fromFile(context: Context, book: BookEntity, style: NovelStyle?): NovelPageSource {
             val bytes = readBookBytes(context, book)
             val text = NovelTextExtractor.decodeTxt(bytes)
-            val (paragraphs, marks) = NovelTextExtractor.txtToBook(text)
+            val (paragraphs, marks) = if (book.format == BookFormat.MD.name) {
+                NovelTextExtractor.markdownToBook(text)
+            } else {
+                NovelTextExtractor.txtToBook(text)
+            }
             return open(context, paragraphs, marks, style)
         }
 

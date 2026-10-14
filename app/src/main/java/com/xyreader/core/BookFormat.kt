@@ -11,6 +11,7 @@ enum class BookFormat(val displayName: String) {
     MOBI("MOBI"),
     AZW3("AZW3/KF8"),
     TXT("TXT"),
+    MD("Markdown"),
     DIRECTORY("图片目录"),
 
     /** 同文件夹多个 PDF 合并成的合集（文件夹书：由扫描器按仓库规则生成，非扩展名识别，每个 PDF 为一章） */
@@ -20,7 +21,7 @@ enum class BookFormat(val displayName: String) {
     companion object {
         private val archiveExts = setOf(
             "cbz", "zip", "cbr", "rar", "cb7", "7z", "cbt", "tar", "epub", "pdf",
-            "mobi", "prc", "azw3", "azw", "txt",
+            "mobi", "prc", "azw3", "azw", "txt", "md", "markdown", "mdown", "mkd",
         )
 
         /** 是否是可入库的漫画文件扩展名 */
@@ -41,6 +42,7 @@ enum class BookFormat(val displayName: String) {
                 "mobi", "prc" -> MOBI
                 "azw3", "azw" -> AZW3
                 "txt" -> TXT
+                "md", "markdown", "mdown", "mkd" -> MD
                 else -> UNKNOWN
             }
         }

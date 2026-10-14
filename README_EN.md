@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Manga | ZIP / CBZ · RAR / CBR · 7Z / CB7 · TAR / CBT | Read straight from the archive — no extraction, no extra storage |
 | E-books | PDF · EPUB · MOBI · AZW3 / KF8 | Paged reading |
-| Novels | TXT | Automatic chapter detection + typography engine |
+| Novels | TXT / Markdown (md) | Automatic chapter detection (Markdown headings become chapters) + typography engine |
 | Images | Folders | Use an image folder directly as a book |
 | PDF collections | Folders | Multiple PDFs in the same subfolder become one book, one chapter per PDF |
 
@@ -50,7 +50,7 @@
 
 ### System integration
 
-- **Open with**: open zip / cbz / cbr / 7z / tar / pdf / epub / mobi / txt files directly in XY-READER from file managers, MT Manager, QQ, WeChat, etc.;
+- **Open with**: open zip / cbz / cbr / 7z / tar / pdf / epub / mobi / txt / md files directly in XY-READER from file managers, MT Manager, QQ, WeChat, etc.;
 - **Share to import**: share a file from any app to XY-READER and it lands in your library, ready to read.
 
 ## Installation
