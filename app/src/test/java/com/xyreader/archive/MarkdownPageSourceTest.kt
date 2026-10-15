@@ -80,7 +80,7 @@ class MarkdownPageSourceTest {
                 assertEquals(480, bitmap.width)
                 assertEquals(800, bitmap.height)
             }
-            val all = (0 until src.pageCount).joinToString("\n") { src.pageText(it) }
+            val all = (0 until src.pageCount).map { src.pageText(it) }.joinToString("\n")
             assertTrue(all.contains("粗体"))
             assertFalse("复制出的文字不应带 Markdown 标记", all.contains("**") || all.contains("```") || all.contains("|---"))
         } finally {
@@ -90,7 +90,7 @@ class MarkdownPageSourceTest {
 
     @Test fun headingMakesPageContentDifferFromPlainText() = runBlocking {
         val md = source("# 大标题\n\n正文一行")
-        val plain = source("大标题\n\n正文一行".replace("\n\n", "\n").let { it })
+        val plain = source("大标题\n正文一行")
         try {
             val a = md.renderPage(0).asAndroidBitmap()
             val b = plain.renderPage(0).asAndroidBitmap()
