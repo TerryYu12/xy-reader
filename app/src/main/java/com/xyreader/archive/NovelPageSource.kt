@@ -86,9 +86,6 @@ data class NovelStyle(
     val chapterNewPage: Boolean = false,
 )
 
-/** 一个文字段落：文本 + 所属章节序号（各格式解析器填充） */
-data class Paragraph(val text: String, val chapterIndex: Int)
-
 /**
  * 构建带首行缩进的段落（LeadingMarginSpan，仅首行）。
  * AOSP StaticLayout.generate() 对 LeadingMarginSpan 有逐段专门处理（真机生效）；
@@ -115,11 +112,15 @@ internal fun buildIndentedParagraph(paint: TextPaint, text: String): CharSequenc
     return span
 }
 
-/** 页内片段：第 [paragraphIndex] 段的第 [startLine] 行起共 [lineCount] 行（跨页段落按行切分） */
+/**
+ * 页内片段：第 [paragraphIndex] 段的第 [startLine] 行起共 [lineCount] 行（跨页段落按行切分）。
+ * [heightPx] = 片段占用的页内高度；普通文字段恒为 lineCount × 统一行高，Markdown 块含标题放大 / 块间距。
+ */
 internal data class PageFragment(
     val paragraphIndex: Int,
     val startLine: Int,
     val lineCount: Int,
+    val heightPx: Int = 0,
 )
 
 /** 页面几何：四边内边距（px）和行距倍率由阅读配置提供。 */
@@ -224,6 +225,9 @@ class NovelPageSource internal constructor(
         (((metrics.pageHeightPx - metrics.paddingTop - metrics.paddingBottom) / lineHeightPx).toInt())
             .coerceAtLeast(1)
 
+    /** Markdown 块的版式 / 绘制（仅 [Paragraph.md] 非空的段落使用） */
+    private val mdRenderer = MarkdownRenderer(textPaint, style, contentWidth, lineHeightPx)
+
     /** 分页结果：每个元素为文本页（片段列表）或整页图片页 */
     private val pages: List<NovelPage>
 
@@ -273,7 +277,7 @@ class NovelPageSource internal constructor(
             val first = page.fragments.first()
             if (first.paragraphIndex != lastParagraph) {
                 lastParagraph = first.paragraphIndex
-                lastLayout = buildLayout(paragraphs[lastParagraph].text)
+                lastLayout = paragraphLayout(lastParagraph)
             }
             pageStartOffsets[pageIndex] = paragraphStartOffsets[first.paragraphIndex] +
                 lastLayout!!.getLineStart(first.startLine).toLong()
@@ -336,13 +340,15 @@ class NovelPageSource internal constructor(
     private fun paginate(): Pair<List<NovelPage>, IntArray> {
         val pagesOut = mutableListOf<NovelPage>()
         var currentFrags = mutableListOf<PageFragment>()
-        var usedLines = 0
+        var usedPx = 0
+        // 页容量（像素）：普通文字段每行恰为 lineHeightPx，与旧的"按行数装页"结果一致
+        val capacityPx = linesPerPage * lineHeightPx
         val firstPages = IntArray(paragraphs.size)
 
         fun flushPage() {
             if (currentFrags.isNotEmpty()) pagesOut += NovelPage(currentFrags)
             currentFrags = mutableListOf()
-            usedLines = 0
+            usedPx = 0
         }
 
         /** 插入一组整页图片：先收尾当前文本页，再每张图独立成页 */
@@ -368,19 +374,38 @@ class NovelPageSource internal constructor(
             // 段落前的整页图片（图片在文字之前；先收尾再插，不干扰章首断页语义）
             imageGroupsByIndex[paraIdx]?.forEach { appendImageGroup(it, paraIdx) }
             if (paraIdx in chapterStarts) flushPage()
-            val layout = buildLayout(paragraph.text)
-            val lineCount = layout.lineCount
+            val layout = paragraphLayout(paraIdx)
+            // Markdown 块：每行高度各异（标题放大 / 块间距），按像素累加；普通段落恒等高
+            val heights: IntArray? =
+                if (paragraph.md != null) mdRenderer.lineHeights(paraIdx, paragraph, layout) else null
+            val lineCount = heights?.size ?: layout.lineCount
             var startLine = 0
             var firstFragment = true
             while (startLine < lineCount) {
-                if (usedLines == linesPerPage) flushPage()
-                val take = minOf(lineCount - startLine, linesPerPage - usedLines)
-                currentFrags += PageFragment(paraIdx, startLine, take)
+                if (usedPx >= capacityPx) flushPage()
+                var take = 0
+                var fragPx = 0
+                while (startLine + take < lineCount) {
+                    val h = heights?.get(startLine + take) ?: lineHeightPx
+                    if (usedPx + fragPx + h > capacityPx) break
+                    fragPx += h
+                    take++
+                }
+                if (take == 0) {
+                    // 当前页放不下下一行：页上已有内容 → 换页重试；整页都放不下（超高表格行等）→ 强制放 1 行
+                    if (usedPx > 0) {
+                        flushPage()
+                        continue
+                    }
+                    take = 1
+                    fragPx = heights?.get(startLine) ?: lineHeightPx
+                }
+                currentFrags += PageFragment(paraIdx, startLine, take, fragPx)
                 if (firstFragment) {
                     firstPages[paraIdx] = pagesOut.size
                     firstFragment = false
                 }
-                usedLines += take
+                usedPx += fragPx
                 startLine += take
             }
         }
@@ -388,6 +413,12 @@ class NovelPageSource internal constructor(
         imageGroupsByIndex[paragraphs.size]?.forEach { appendImageGroup(it, paragraphs.size) }
         flushPage()
         return pagesOut to firstPages
+    }
+
+    /** 段落排版：Markdown 块走 [MarkdownRenderer]（标题 / 列表 / 引用 / 代码等版式），其余沿用统一排版 */
+    private fun paragraphLayout(paragraphIndex: Int): StaticLayout {
+        val p = paragraphs[paragraphIndex]
+        return if (p.md != null) mdRenderer.buildLayout(p) else buildLayout(p.text)
     }
 
     /** 统一 StaticLayout 构建：可调行距、含字体 padding、左对齐；首行缩进按样式生效 */
@@ -460,11 +491,20 @@ class NovelPageSource internal constructor(
                     drawImagePage(canvas, bytes)
                     return@withContext bitmap.asImageBitmap()
                 }
-                var slot = 0
+                var usedPx = 0
                 for (frag in page.fragments) {
                     val layout = layoutFor(frag.paragraphIndex)
-                    val top = metrics.paddingTop + slot * lineHeightPx
-                    val bottom = metrics.paddingTop + (slot + frag.lineCount) * lineHeightPx
+                    val top = metrics.paddingTop + usedPx
+                    val paragraph = paragraphs[frag.paragraphIndex]
+                    if (paragraph.md != null) {
+                        mdRenderer.draw(
+                            canvas, frag.paragraphIndex, paragraph, layout, frag,
+                            metrics.paddingLeft, metrics.pageWidthPx - metrics.paddingRight, top,
+                        )
+                        usedPx += frag.heightPx
+                        continue
+                    }
+                    val bottom = metrics.paddingTop + usedPx + frag.lineCount * lineHeightPx
                     canvas.save()
                     canvas.clipRect(
                         metrics.paddingLeft, top,
@@ -477,7 +517,7 @@ class NovelPageSource internal constructor(
                     )
                     layout.draw(canvas)
                     canvas.restore()
-                    slot += frag.lineCount
+                    usedPx += frag.lineCount * lineHeightPx
                 }
                 bitmap.asImageBitmap()
             }
@@ -504,7 +544,7 @@ class NovelPageSource internal constructor(
     /** 取段落 StaticLayout：缓存未命中则构建并入缓存（调用方已持 renderMutex） */
     private fun layoutFor(paragraphIndex: Int): StaticLayout {
         layoutCache.get(paragraphIndex)?.let { return it }
-        val layout = buildLayout(paragraphs[paragraphIndex].text)
+        val layout = paragraphLayout(paragraphIndex)
         layoutCache.put(paragraphIndex, layout)
         return layout
     }
@@ -519,6 +559,9 @@ class NovelPageSource internal constructor(
             withContext(Dispatchers.IO) {
                 pages[page].fragments.joinToString("\n") { frag ->
                     val text = paragraphs[frag.paragraphIndex].text
+                    val kind = paragraphs[frag.paragraphIndex].md?.kind
+                    // 表格行 / 分割线是整块自绘，不按排版行截取
+                    if (kind == MdKind.TABLE_ROW || kind == MdKind.RULE) return@joinToString text
                     val layout = layoutFor(frag.paragraphIndex)
                     val lastLine = (frag.startLine + frag.lineCount - 1)
                         .coerceIn(0, layout.lineCount - 1)
@@ -573,6 +616,7 @@ class NovelPageSource internal constructor(
     /** 无底层资源（文本已在内存）：清空排版缓存并置关闭标志（checkPage 此后拒绝渲染） */
     override fun close() = onFirstClose {
         layoutCache.evictAll()
+        mdRenderer.clearCaches()
     }
 
     companion object {
