@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Manga | ZIP / CBZ · RAR / CBR · 7Z / CB7 · TAR / CBT | Read straight from the archive — no extraction, no extra storage |
 | E-books | PDF · EPUB · MOBI · AZW3 / KF8 | Paged reading |
-| Novels | TXT / Markdown (md) | Automatic chapter detection (Markdown headings become chapters) + typography engine |
+| Novels | TXT / Markdown (md) | Automatic chapter detection (Markdown headings become chapters) + typography engine; full Markdown rendering (heading sizes, lists, quotes, code blocks, tables, etc.) |
 | Images | Folders | Use an image folder directly as a book |
 | PDF collections | Folders | Multiple PDFs in the same subfolder become one book, one chapter per PDF |
 

@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 漫画 | ZIP / CBZ · RAR / CBR · 7Z / CB7 · TAR / CBT | 压缩包直接读取，不预先解压、不占额外空间 |
 | 电子书 | PDF · EPUB · MOBI · AZW3 / KF8 | 分页阅读 |
-| 小说 | TXT / Markdown（md） | 自动章节识别（Markdown 以标题分章）+ 排版引擎 |
+| 小说 | TXT / Markdown（md） | 自动章节识别（Markdown 以标题分章）+ 排版引擎；Markdown 完整排版（标题字号、列表、引用、代码块、表格等） |
 | 图片 | 文件夹 | 直接以图片目录为书 |
 | PDF 合集 | 文件夹 | 同一子文件夹里的多个 PDF 合成一本，每个 PDF 为一章 |
 
