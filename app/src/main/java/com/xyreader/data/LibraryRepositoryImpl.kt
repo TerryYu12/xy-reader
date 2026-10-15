@@ -342,6 +342,7 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
     private fun sharedMimeToExtension(mimeType: String?): String? =
         when (mimeType?.lowercase()?.substringBefore(';')?.trim()) {
             "text/plain" -> "txt"
+            "text/markdown", "text/x-markdown" -> "md"
             "application/pdf" -> "pdf"
             "application/epub+zip" -> "epub"
             "application/x-mobipocket-ebook" -> "mobi"

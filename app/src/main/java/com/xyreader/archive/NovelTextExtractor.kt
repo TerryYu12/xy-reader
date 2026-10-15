@@ -126,6 +126,171 @@ object NovelTextExtractor {
     }
 
     // ==================================================================
+    // Markdown
+    // ==================================================================
+
+    private val MD_FENCE_CHARS = listOf("```", "~~~")
+    private val MD_HR = Regex("^((\\*\\s*){3,}|(-\\s*){3,}|(_\\s*){3,})$")
+    private val MD_ATX = Regex("^(#{1,6})\\s+(.*?)(\\s+#+)?\\s*$")
+    private val MD_REF_DEF = Regex("^\\[[^\\]]+]:\\s*\\S+.*$")
+    private val MD_BULLET = Regex("^[-*+]\\s+(.*)$")
+    private val MD_ORDERED = Regex("^(\\d{1,9})[.)]\\s+(.*)$")
+    private val MD_TABLE_SEP = Regex("^\\|?[\\s:|-]+\\|?$")
+    private val MD_CODE_SPAN = Regex("`+([^`]+)`+")
+    private val MD_IMAGE = Regex("!\\[([^\\]]*)]\\([^)]*\\)")
+    private val MD_LINK = Regex("\\[([^\\]]+)](\\([^)]*\\)|\\[[^\\]]*])")
+    private val MD_AUTOLINK = Regex("<((?:https?|mailto):[^>]+)>")
+    private val MD_HTML_TAG = Regex("</?[A-Za-z][^>]*>|<!--.*?-->")
+    private val MD_BOLD = Regex("(\\*\\*|__)(?=\\S)(.+?)(?<=\\S)\\1")
+    private val MD_ITALIC_STAR = Regex("\\*(?=\\S)([^*]+?)(?<=\\S)\\*")
+    private val MD_ITALIC_UNDERSCORE = Regex("(?<![\\w])_(?=\\S)([^_]+?)(?<=\\S)_(?![\\w])")
+    private val MD_STRIKE = Regex("~~(?=\\S)(.+?)(?<=\\S)~~")
+    private val MD_ESCAPE = Regex("\\\\([\\\\`*_{}\\[\\]()#+\\-.!|>~<])")
+
+    /** 行内标记 → 纯文本：行内代码原样保留，其余片段去掉链接/图片/强调/HTML 标签等语法 */
+    private fun mdInline(text: String): String {
+        val out = StringBuilder()
+        var last = 0
+        for (m in MD_CODE_SPAN.findAll(text)) {
+            out.append(mdInlineNoCode(text.substring(last, m.range.first)))
+            out.append(m.groupValues[1])
+            last = m.range.last + 1
+        }
+        out.append(mdInlineNoCode(text.substring(last)))
+        return out.toString().trim()
+    }
+
+    private fun mdInlineNoCode(text: String): String = text
+        .replace(MD_IMAGE, "$1")
+        .replace(MD_LINK, "$1")
+        .replace(MD_AUTOLINK, "$1")
+        .replace(MD_HTML_TAG, "")
+        .replace(MD_BOLD, "$2")
+        .replace(MD_ITALIC_STAR, "$1")
+        .replace(MD_ITALIC_UNDERSCORE, "$1")
+        .replace(MD_STRIKE, "$1")
+        .replace(MD_ESCAPE, "$1")
+
+    private fun isCjk(c: Char) = c.code >= 0x2E80
+
+    /**
+     * Markdown 全文 → 段落 + 章节标记（与 [txtToBook] 同一输出形态，走同一套排版引擎）：
+     * - # ~ ###（含 Setext 下划线式）标题作章首；更深层标题按普通段落；
+     * - 相邻的普通文本行按 Markdown 规则合并为一段（CJK 之间不补空格）；
+     * - 列表 → "• " / "N. "，任务列表 → ☐ / ☑，表格行以 " | " 连接（分隔行丢弃）；
+     * - 围栏代码块保留内容逐行成段；引用去掉 ">"；分隔线 / 链接引用定义 / YAML 头丢弃；
+     * - 图片保留 alt 文本，链接保留文字，强调/删除线/行内 HTML 去除标记。
+     */
+    fun markdownToBook(text: String): Pair<List<Paragraph>, List<ChapterMark>> {
+        val paragraphs = mutableListOf<Paragraph>()
+        val marks = mutableListOf<ChapterMark>()
+        var currentChapter = -1
+
+        fun ensureChapter() {
+            if (currentChapter < 0) {
+                marks += ChapterMark(title = "正文", paragraphIndex = paragraphs.size)
+                currentChapter = marks.size - 1
+            }
+        }
+        fun addPara(t: String) {
+            if (t.isBlank()) return
+            ensureChapter()
+            paragraphs += Paragraph(text = t, chapterIndex = currentChapter)
+        }
+        fun addHeading(t: String) {
+            if (t.isBlank()) return
+            marks += ChapterMark(title = t, paragraphIndex = paragraphs.size)
+            currentChapter = marks.size - 1
+            paragraphs += Paragraph(text = t, chapterIndex = currentChapter)
+        }
+
+        val buffer = StringBuilder()
+        fun flush() {
+            if (buffer.isNotEmpty()) addPara(mdInline(buffer.toString()))
+            buffer.setLength(0)
+        }
+
+        val lines = text.lines()
+        var i = 0
+        // YAML front matter：首行 --- 且存在收尾 --- / ...
+        if (lines.firstOrNull()?.trim() == "---") {
+            val end = (1 until lines.size).firstOrNull { lines[it].trim() == "---" || lines[it].trim() == "..." }
+            if (end != null) i = end + 1
+        }
+
+        while (i < lines.size) {
+            val raw = lines[i]
+            val fence = MD_FENCE_CHARS.firstOrNull { raw.trimStart().startsWith(it) }
+            if (fence != null) {
+                flush()
+                i++
+                while (i < lines.size && !lines[i].trimStart().startsWith(fence)) {
+                    addPara(lines[i].trimEnd())
+                    i++
+                }
+                i++
+                continue
+            }
+
+            var s = raw.trim()
+            while (s.startsWith(">")) s = s.removePrefix(">").trimStart()
+            i++
+
+            if (s.isEmpty()) { flush(); continue }
+            if (buffer.isNotEmpty() && s.matches(Regex("^=+$"))) {
+                addHeading(mdInline(buffer.toString())); buffer.setLength(0); continue
+            }
+            if (buffer.isNotEmpty() && s.matches(Regex("^-+$"))) {
+                addHeading(mdInline(buffer.toString())); buffer.setLength(0); continue
+            }
+            if (MD_HR.matches(s)) { flush(); continue }
+            val atx = MD_ATX.matchEntire(s)
+            if (atx != null) {
+                flush()
+                val title = mdInline(atx.groupValues[2])
+                if (atx.groupValues[1].length <= 3) addHeading(title) else addPara(title)
+                continue
+            }
+            if (MD_REF_DEF.matches(s)) { flush(); continue }
+
+            val bullet = MD_BULLET.matchEntire(s)
+            if (bullet != null) {
+                flush()
+                var item = bullet.groupValues[1]
+                val mark = when {
+                    item.startsWith("[ ] ") -> "☐ ".also { item = item.substring(4) }
+                    item.startsWith("[x] ") || item.startsWith("[X] ") -> "☑ ".also { item = item.substring(4) }
+                    else -> "• "
+                }
+                addPara(mark + mdInline(item))
+                continue
+            }
+            val ordered = MD_ORDERED.matchEntire(s)
+            if (ordered != null) {
+                flush()
+                addPara("${ordered.groupValues[1]}. " + mdInline(ordered.groupValues[2]))
+                continue
+            }
+            if (s.startsWith("|")) {
+                flush()
+                if (s.contains('-') && MD_TABLE_SEP.matches(s)) continue
+                addPara(s.trim('|').split('|').joinToString("  |  ") { mdInline(it) })
+                continue
+            }
+
+            // 普通文本行：与上一行合并为同一段；行尾两空格 / 反斜杠 = 硬换行
+            if (buffer.isNotEmpty()) {
+                if (!(isCjk(buffer.last()) || isCjk(s.first()))) buffer.append(' ')
+            }
+            buffer.append(s.removeSuffix("\\"))
+            if (raw.endsWith("  ") || raw.endsWith("\\")) flush()
+        }
+        flush()
+        if (marks.isEmpty()) marks += ChapterMark(title = "正文", paragraphIndex = 0)
+        return paragraphs to marks
+    }
+
+    // ==================================================================
     // EPUB 文本版
     // ==================================================================
 

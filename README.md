@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 漫画 | ZIP / CBZ · RAR / CBR · 7Z / CB7 · TAR / CBT | 压缩包直接读取，不预先解压、不占额外空间 |
 | 电子书 | PDF · EPUB · MOBI · AZW3 / KF8 | 分页阅读 |
-| 小说 | TXT | 自动章节识别 + 排版引擎 |
+| 小说 | TXT / Markdown（md） | 自动章节识别（Markdown 以标题分章）+ 排版引擎 |
 | 图片 | 文件夹 | 直接以图片目录为书 |
 | PDF 合集 | 文件夹 | 同一子文件夹里的多个 PDF 合成一本，每个 PDF 为一章 |
 
@@ -50,7 +50,7 @@
 
 ### 系统集成
 
-- **「打开方式」**：从文件管理器 / MT 管理器 / QQ / 微信等直接以 XY-READER 打开 zip / cbz / cbr / 7z / tar / pdf / epub / mobi / txt 等文件；
+- **「打开方式」**：从文件管理器 / MT 管理器 / QQ / 微信等直接以 XY-READER 打开 zip / cbz / cbr / 7z / tar / pdf / epub / mobi / txt / md 等文件；
 - **分享导入**：从任意应用把文件分享到 XY-READER，直接入库开始阅读。
 
 ## 安装

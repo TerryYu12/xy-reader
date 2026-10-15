@@ -43,6 +43,8 @@
                 <data android:scheme="file" />
                 <data android:host="*" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="application/x-mobipocket-ebook" />
@@ -74,6 +76,9 @@
                 <data android:host="*" />
                 <data android:pathPattern=".*\\.txt" />
                 <data android:pathPattern=".*\\.TXT" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.MD" />
+                <data android:pathPattern=".*\\.markdown" />
                 <data android:pathPattern=".*\\.epub" />
                 <data android:pathPattern=".*\\.EPUB" />
                 <data android:pathPattern=".*\\.pdf" />
@@ -111,6 +116,9 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.txt" />
                 <data android:pathPattern=".*\\.TXT" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.MD" />
+                <data android:pathPattern=".*\\.markdown" />
                 <data android:pathPattern=".*\\.epub" />
                 <data android:pathPattern=".*\\.EPUB" />
                 <data android:pathPattern=".*\\.pdf" />
@@ -141,6 +149,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <category android:name="android.intent.category.OPENABLE" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="application/x-mobipocket-ebook" />
@@ -171,6 +181,9 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.txt" />
                 <data android:pathPattern=".*\\.TXT" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.MD" />
+                <data android:pathPattern=".*\\.markdown" />
                 <data android:pathPattern=".*\\.epub" />
                 <data android:pathPattern=".*\\.EPUB" />
                 <data android:pathPattern=".*\\.pdf" />
