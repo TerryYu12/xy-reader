@@ -1,6 +1,6 @@
 # XY reader
 
-**Android 本地漫画 / 小说阅读器** — 压缩包直读、本地与远程书库（WebDAV / Google Drive），专注干净、纯粹的阅读体验。
+**Android 本地漫画 / 小说阅读器 （mh-ark升级版）** — 压缩包直读、本地与远程书库（WebDAV / Google Drive），专注干净、纯粹的阅读体验。
 
 [English](README_EN.md) | **简体中文**
 
