@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,15 +19,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,15 +38,18 @@ import com.xyreader.data.UpdateInfo
 import com.xyreader.data.UpdatePrefsStore
 import com.xyreader.data.InstallerLaunchResult
 import com.xyreader.data.checkForUpdate
-import com.xyreader.data.downloadApk
+import com.xyreader.data.isNewer
+import com.xyreader.data.UpdateDownloadManager
+import com.xyreader.data.UpdateDownloadSnapshot
+import com.xyreader.data.UpdateDownloadStatus
 import com.xyreader.data.launchInstaller
 import com.xyreader.data.openReleasePage
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-
-/** 24 小时检查节流窗口（毫秒）：上次成功检查在此窗口内则启动自检跳过 */
-private const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
 /** 进首页后延迟多久开始静默自检，避开首帧渲染与扫描 */
 private const val AUTO_CHECK_DELAY_MS = 1_500L
@@ -74,40 +80,106 @@ internal object UpdateHostState {
 /**
  * 启动自检与弹窗宿主：挂在导航根组合树里，保证任意路由都能显示手动检查结果。
  *
- * 进首页后延迟 [AUTO_CHECK_DELAY_MS] 再检查；距上次成功检查不足 24h 直接跳过；
+ * 每次进入前台延迟 [AUTO_CHECK_DELAY_MS] 再检查，不受历史检查时间限制；
  * 有新版本才设状态弹窗，任何失败静默（不打扰用户）。
  */
 @Composable
-internal fun UpdateHost() {
+internal fun UpdateHost(check: suspend (String) -> Result<UpdateInfo?> = ::checkForUpdate) {
     val context = LocalContext.current
-    val prefs = remember(context) { UpdatePrefsStore(context) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val downloads = remember(context) { UpdateDownloadManager(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var download by remember { mutableStateOf<UpdateDownloadSnapshot?>(null) }
+    var submitting by remember { mutableStateOf(false) }
+    var readError by remember { mutableStateOf<String?>(null) }
+    var submitError by remember { mutableStateOf<String?>(null) }
     val currentVersion = BuildConfig.VERSION_NAME
 
-    LaunchedEffect(Unit) {
-        delay(AUTO_CHECK_DELAY_MS)
-        val lastCheckAt = try {
-            prefs.lastCheckAt.first()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            0L // 偏好文件读取失败时仍执行检查，不把异常升级成应用崩溃
-        }
-        if (System.currentTimeMillis() - lastCheckAt < CHECK_INTERVAL_MS) return@LaunchedEffect
-        checkForUpdate(currentVersion).onSuccess { info ->
-            // 只有「请求成功」（有新版或已最新）才刷新时间戳；失败不占用 24h 窗口，便于重试
-            markCheckedSafely(prefs)
-            if (info != null) UpdateHostState.show(info, currentVersion)
+    LaunchedEffect(lifecycle, downloads) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            launch {
+                delay(AUTO_CHECK_DELAY_MS)
+                runAutomaticCheck(currentVersion, check) { info ->
+                    // 继续展示现有下载，避免新发布替换正在下载的版本。
+                    if (download == null && !UpdateHostState.visible) {
+                        UpdateHostState.show(info, currentVersion)
+                    }
+                }
+            }
+            while (isActive) {
+                try {
+                    download = downloads.snapshot()
+                    readError = null
+                    val saved = download
+                    if (saved != null && !isNewer(saved.info.version, currentVersion)) {
+                        downloads.forget()
+                        download = null
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    readError = "无法读取更新下载状态，请稍后重试。"
+                }
+                delay(1_000)
+            }
         }
     }
 
+    val task = download
+    if (!UpdateHostState.visible && task != null) {
+        Box(Modifier.fillMaxSize().padding(12.dp), contentAlignment = Alignment.BottomEnd) {
+            Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
+                TextButton(onClick = { UpdateHostState.show(task.info, currentVersion) }) {
+                    Text(when (task.status) {
+                        UpdateDownloadStatus.DOWNLOADING -> if (task.progress < 0) "更新正在后台下载" else "更新下载 ${task.progress}%"
+                        UpdateDownloadStatus.READY -> "安装更新 v${task.info.version}"
+                        UpdateDownloadStatus.FAILED -> "更新下载失败 · 重试"
+                    })
+                }
+            }
+        }
+    }
     val info = UpdateHostState.info
     if (UpdateHostState.visible && info != null) {
         UpdateDialog(
             info = info,
             currentVersion = UpdateHostState.currentVersion,
             onDismiss = { UpdateHostState.dismiss() },
+            download = download?.takeIf { it.info.tag == info.tag },
+            submitting = submitting,
+            hostError = submitError ?: readError,
+            onDownload = {
+                if (!submitting) {
+                    submitting = true
+                    submitError = null
+                    scope.launch {
+                        try {
+                            downloads.enqueue(info)
+                            download = downloads.snapshot()
+                            download?.let { actual ->
+                                if (UpdateHostState.visible) UpdateHostState.show(actual.info, currentVersion)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            submitError = "无法开始下载：${e.message ?: "系统下载服务不可用"}"
+                        } finally {
+                            submitting = false
+                        }
+                    }
+                }
+            },
         )
     }
+}
+
+/** 每次前台会话都实际请求；不读取旧时间戳，也不缓存失败为“已是最新”。 */
+internal suspend fun runAutomaticCheck(
+    currentVersion: String,
+    check: suspend (String) -> Result<UpdateInfo?> = ::checkForUpdate,
+    onUpdate: (UpdateInfo) -> Unit,
+) {
+    check(currentVersion).onSuccess { info -> if (info != null) onUpdate(info) }
 }
 
 /**
@@ -139,31 +211,33 @@ private suspend fun markCheckedSafely(prefs: UpdatePrefsStore) {
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
-        // 检查结果仍有效；偏好存储故障只会导致下次启动再次自检。
+        // 检查结果仍有效，不让诊断时间戳写入失败阻断提示。
     }
 }
 
 /**
  * 更新弹窗（Material3 AlertDialog，风格对齐设置页「强调色」弹窗）：
  * 标题「发现新版本 vX.Y.Z」；正文可滚动（最高 ≈300dp）显示更新说明；
- * 主按钮「立即更新」→ 下载中显示进度 → 完成后调起系统安装器并关闭；
- * 次按钮「取消」= 关闭，本次不再提醒（下次启动若超出 24h 窗口仍会重查）。
- * 下载失败时正文显示错误文案，并把主按钮换成「浏览器打开」兜底。
+ * 主按钮「立即更新」→ 系统下载中显示进度 → 完成后点击「安装更新」；
+ * 次按钮「后台下载」收起弹窗，任务由系统继续执行。
+ * 下载失败时显示错误和重试按钮，保留「浏览器打开」兜底。
  */
 @Composable
 internal fun UpdateDialog(
     info: UpdateInfo,
     currentVersion: String,
     onDismiss: () -> Unit,
+    download: UpdateDownloadSnapshot? = null,
+    submitting: Boolean = false,
+    hostError: String? = null,
+    onDownload: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    var downloading by remember { mutableStateOf(false) }
-    var progress by remember { mutableIntStateOf(0) }
+    val downloading = download?.status == UpdateDownloadStatus.DOWNLOADING || submitting
+    val progress = download?.progress ?: -1
+    val downloadedApk = download?.takeIf { it.status == UpdateDownloadStatus.READY }?.file
     var error by remember { mutableStateOf<String?>(null) }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
-    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
 
     fun launchDownloadedInstaller(file: java.io.File) {
         runCatching { launchInstaller(context, file) }
@@ -177,28 +251,8 @@ internal fun UpdateDialog(
             .onFailure { error = "无法调起安装器：${it.message ?: "未知错误"}" }
     }
 
-    fun startDownload() {
-        downloading = true
-        progress = 0
-        error = null
-        permissionMessage = null
-        scope.launch {
-            downloadApk(context, info) { p -> progress = p }.fold(
-                onSuccess = { file ->
-                    downloading = false
-                    downloadedApk = file
-                    launchDownloadedInstaller(file)
-                },
-                onFailure = { e ->
-                    downloading = false
-                    error = "下载失败：${e.message ?: "网络错误"}"
-                },
-            )
-        }
-    }
-
     AlertDialog(
-        onDismissRequest = { if (!downloading) onDismiss() },
+        onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(20.dp),
         title = {
@@ -249,10 +303,11 @@ internal fun UpdateDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (error != null) {
+                val message = error ?: hostError ?: download?.error
+                if (message != null) {
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        error!!,
+                        message,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -271,31 +326,37 @@ internal fun UpdateDialog(
             when {
                 downloadedApk != null && !downloading -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { launchDownloadedInstaller(downloadedApk!!) }) {
-                            Text("继续安装")
+                        TextButton(onClick = { launchDownloadedInstaller(downloadedApk) }) {
+                            Text(if (permissionMessage == null) "安装更新" else "继续安装")
                         }
                         TextButton(onClick = { openReleasePage(context, info.htmlUrl) }) {
                             Text("浏览器打开")
                         }
                     }
                 }
-                info.assetUrl == null || error != null -> {
+                info.assetUrl == null -> {
                     TextButton(onClick = { openReleasePage(context, info.htmlUrl) }) {
                         Text("浏览器打开")
                     }
                 }
-                else -> {
-                TextButton(
-                    onClick = { if (!downloading) startDownload() },
-                    enabled = !downloading,
-                ) {
-                    Text(if (downloading) "下载中…" else "立即更新")
-                }
+                !downloading -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = {
+                            error = null
+                            permissionMessage = null
+                            onDownload()
+                        }) {
+                            Text(if (download?.status == UpdateDownloadStatus.FAILED || hostError != null) "重试下载" else "立即更新")
+                        }
+                        if (download?.status == UpdateDownloadStatus.FAILED || hostError != null) {
+                            TextButton(onClick = { openReleasePage(context, info.htmlUrl) }) { Text("浏览器打开") }
+                        }
+                    }
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !downloading) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(if (downloading) "后台下载" else "稍后再说") }
         },
     )
 }

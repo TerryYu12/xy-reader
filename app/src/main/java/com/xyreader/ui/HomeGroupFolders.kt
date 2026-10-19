@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -61,8 +63,11 @@ import java.io.File
 internal fun HomeGroupFolderSection(
     groups: List<BookGroupEntity>,
     bookCounts: Map<Long, Int>,
+    totalCount: Int,
+    selectedGroupId: Long?,
     dragState: BookGridDragState,
-    onOpenGroup: (Long) -> Unit,
+    onSelectGroup: (Long?) -> Unit,
+    onOpenGroupManage: () -> Unit,
     onRenameGroup: (Long, String) -> Unit,
     onPickCover: (Long) -> Unit,
     onClearCover: (Long) -> Unit,
@@ -73,74 +78,51 @@ internal fun HomeGroupFolderSection(
     var groupPendingRename by remember { mutableStateOf<BookGroupEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
 
-    val railShape = RoundedCornerShape(13.dp)
-    Column(
+    // 首页分组栏（规范 3.3）：最左固定「全部」系统聚合项 → 中间真实自定义分组（横向滚动）→ 最右固定「分组管理」入口
+    Row(
         modifier = Modifier.fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 3.dp)
-            .clip(railShape)
-            .background(Brush.linearGradient(listOf(Color(0xFF5D4037), Color(0xFF3E2723))))
-            .border(1.dp, Color(0xFF70513B), railShape)
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 14.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 「全部」：含未分组书籍，总数按书籍去重；不可重命名 / 删除 / 拖动
+        HomeFilterChip(
+            label = "全部",
+            count = totalCount,
+            selected = selectedGroupId == null,
+            onClick = { onSelectGroup(null) },
+        )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp, top = 2.dp, bottom = 3.dp),
+            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "书架分组",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFFE2C89F),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (groups.isEmpty()) "暂无分组" else "${groups.size} 个抽屉",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFC1A98B),
-            )
-            Spacer(Modifier.weight(1f))
-            TextButton(
-                onClick = onCreateGroup,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFF0E1CB)),
-            ) {
-                Icon(
-                    Icons.Outlined.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = Color(0xFFF0E1CB),
+            groups.forEach { group ->
+                HomeGroupFolderCard(
+                    group = group,
+                    bookCount = bookCounts[group.id] ?: 0,
+                    selected = selectedGroupId == group.id,
+                    dragState = dragState,
+                    onOpenGroup = { onSelectGroup(group.id) },
                 )
-                Spacer(Modifier.width(3.dp))
-                Text("新建", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF0E1CB))
             }
         }
-        if (groups.isEmpty()) {
-            Text(
-                "创建分组后，可把书籍收进木抽屉。",
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 3.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFEAD8BF),
-            )
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                groups.forEach { group ->
-                    HomeGroupFolderCard(
-                        group = group,
-                        bookCount = bookCounts[group.id] ?: 0,
-                        dragState = dragState,
-                        onOpenGroup = { onOpenGroup(group.id) },
-                        onRenameRequested = {
-                            renameText = group.name
-                            groupPendingRename = group
-                        },
-                        onDeleteGroup = { groupPendingDeletion = group },
-                    )
-                }
+        // 固定的管理入口：只留图标（带 contentDescription），不占文字宽度；
+        // 打开后能新建 / 编辑 / 删除分组（不再是只能显示分类的菜单）
+        Surface(
+            onClick = onOpenGroupManage,
+            modifier = Modifier.size(34.dp),
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Outlined.Tune,
+                    contentDescription = "分组管理",
+                    modifier = Modifier.size(17.dp),
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                )
             }
         }
     }
@@ -204,14 +186,13 @@ internal fun HomeGroupFolderSection(
 private fun HomeGroupFolderCard(
     group: BookGroupEntity,
     bookCount: Int,
+    selected: Boolean,
     dragState: BookGridDragState,
     onOpenGroup: () -> Unit,
-    onRenameRequested: () -> Unit,
-    onDeleteGroup: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(9.dp)
+    val shape = RoundedCornerShape(999.dp)
     val dropKey = "home-folder-${group.id}"
-    var menuExpanded by remember(group.id) { mutableStateOf(false) }
+    val groupCoverFile = remember(group.coverPath) { group.coverPath?.let(::File) }
     val isDropTarget = dragState.draggedBookId != null &&
         dragState.targetBoundsInRoot[dropKey]?.contains(dragState.pointerInRoot) == true
 
@@ -223,84 +204,53 @@ private fun HomeGroupFolderCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(
                 onClick = onOpenGroup,
-                modifier = Modifier.width(124.dp).height(42.dp)
+                modifier = Modifier.height(28.dp).widthIn(max = 84.dp)
                     .onGloballyPositioned { dragState.registerTarget(dropKey, it.boundsInRoot()) },
                 shape = shape,
                 border = BorderStroke(
                     if (isDropTarget) 2.dp else 1.dp,
-                    if (isDropTarget) Color(0xFFFFE6A8) else Color(0xFF89664E),
+                    when {
+                        isDropTarget -> MaterialTheme.colorScheme.primary
+                        selected -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.outline
+                    },
                 ),
-                color = Color(0xFF4D342D),
-                contentColor = Color(0xFFF4E8D8),
+                // 选中胶囊 = 浅粉底 + 主色描边；未选中 = 白底描边
+                color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .background(Brush.horizontalGradient(listOf(Color(0xFF68483C), Color(0xFF3E2723))))
-                        .padding(horizontal = 8.dp),
+                        .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     if (group.coverPath != null) {
                         AsyncImage(
-                            model = File(group.coverPath),
+                            model = groupCoverFile,
                             contentDescription = null,
-                            modifier = Modifier.size(24.dp).clip(RoundedCornerShape(5.dp)),
+                            modifier = Modifier.size(20.dp).clip(RoundedCornerShape(4.dp)),
                             contentScale = ContentScale.Crop,
                         )
                     } else {
                         Icon(
                             Icons.Outlined.FolderOpen,
                             contentDescription = null,
-                            modifier = Modifier.size(19.dp),
-                            tint = Color(0xFFD9B783),
+                            modifier = Modifier.size(13.dp),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                     Text(
                         group.name,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFF4E8D8),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        "$bookCount 本",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 9.sp,
-                        color = Color(0xFFD0B89A),
-                        maxLines = 1,
-                    )
                 }
             }
-            IconButton(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(
-                    Icons.Outlined.MoreVert,
-                    contentDescription = "更多分组操作：${group.name}",
-                    modifier = Modifier.size(18.dp),
-                    tint = Color(0xFFDCC7A5),
-                )
-            }
-        }
-        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-            DropdownMenuItem(
-                text = { Text("重命名") },
-                leadingIcon = { Icon(Icons.Outlined.DriveFileRenameOutline, null) },
-                onClick = {
-                    menuExpanded = false
-                    onRenameRequested()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("删除分组", color = MaterialTheme.colorScheme.error) },
-                leadingIcon = {
-                    Icon(Icons.Outlined.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
-                },
-                onClick = { menuExpanded = false; onDeleteGroup() },
-            )
         }
     }
 

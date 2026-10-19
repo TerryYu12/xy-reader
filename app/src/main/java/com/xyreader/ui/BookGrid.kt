@@ -1,5 +1,10 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.xyreader.ui
 
+import android.net.Uri
+
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +44,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Autorenew
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
@@ -109,6 +115,9 @@ import kotlin.math.roundToInt
 internal val FAVORITE_BADGE_SIZE = 22.dp
 internal val FAVORITE_ICON_SIZE = 13.dp
 internal val FAVORITE_HIT_SIZE = 36.dp
+
+/** 书名行尾给 ⋮ 预留的宽度（也是 ⋮ 的点按区域）：固定值，不随书名长短变化 */
+private val TITLE_MENU_RESERVE = 30.dp
 private val FAVORITE_BADGE_MARGIN = 2.dp
 private val FavoriteBadgeScrim = Color.Black.copy(alpha = 0.38f)
 
@@ -437,10 +446,10 @@ internal fun BookGrid(
                     state.gridBoundsInRoot = it.boundsInRoot()
                 },
                 contentPadding = gridPadding,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                items(books, key = { it.id }) { book ->
+                items(books, key = { it.id }, contentType = { "book" }) { book ->
                     BookCard(
                         book = book,
                         groups = groups,
@@ -618,12 +627,20 @@ internal fun BookCard(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // 「删除本地文件」：真删磁盘上的文件（夹），与「删除（仅移除记录）」分开。
+    // 两道确认：第 2 道的按钮位置与第 1 道互换（confirm/dismiss 槽位对调），避免连点误删。
+    var deleteFileStep by remember { mutableStateOf(0) }
+    val fileRepo = rememberLibraryRepository()
+    val fileScope = rememberCoroutineScope()
     var showGroupDialog by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
     var confirmClearHistory by remember { mutableStateOf(false) }
-    val corner = RoundedCornerShape(20.dp)
+    // 封面圆角：规范第 4/7 节 4–6dp，取 5dp（不做大圆角卡片式封面）
+    val corner = RoundedCornerShape(5.dp)
     val coverFrame = LocalCoverFrame.current
+    // 每帧重组都 new 一个 File 会让 Coil 重建请求；按路径记住即可（File 只做路径包装）
+    val coverFile = remember(book.coverPath) { book.coverPath?.let(::File) }
     // 长按后手指还没移出点按容差时不算拖动（松手是进入多选），卡片不要先变淡
     val isDragging = dragState != null && dragState.draggedBookId == book.id && dragState.dragMoved
 
@@ -639,7 +656,8 @@ internal fun BookCard(
                 }.graphicsLayer { if (isDragging) alpha = 0.28f },
             ) {
         Box(
-            modifier = Modifier.fillMaxWidth().aspectRatio(0.72f)
+            // 封面严格 2:3（规范 3.4：高 = 宽 × 1.5），高度由宽度算出，不按剩余高度均分
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)
                 .shadow(elevation = 2.dp, shape = corner)
                 .clip(corner)
                 .background(SolidColor(MaterialTheme.colorScheme.surfaceVariant))
@@ -675,18 +693,24 @@ internal fun BookCard(
                 )
             }
             AsyncImage(
-                model = book.coverPath?.let(::File),
+                model = coverFile,
                 contentDescription = book.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
 
-            // 格式角标：封面左下，始终显示（沿用既有 FormatTag 样式）
-            Box(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().height(48.dp)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.42f)))),
-                contentAlignment = Alignment.BottomStart,
-            ) { FormatTag(book.format, Modifier.padding(start = 10.dp, bottom = 10.dp)) }
+            // 封面底部：一条渐变遮罩 + 同一行里的两枚角标（格式在左、进度在右），
+            // 用 SpaceBetween 保证两者基线一致、左右边距对称（以前各自 align 到底角，6dp/8dp 差 2dp 会看着错位）
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.38f))))
+                    .padding(start = 7.dp, end = 7.dp, top = 16.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FormatTag(book.format)
+                BookReadingProgressBadge(book)
+            }
 
             // 爱心在封面右上角（保留「收藏/取消收藏」contentDescription）；
             // 多选态隐藏，改在左上角显示勾选标
@@ -721,28 +745,24 @@ internal fun BookCard(
                     }
                 }
             }
-            BookReadingProgressBadge(
-                book = book,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 8.dp),
-            )
         }
 
         Spacer(Modifier.height(6.dp))
-        // 标题行：书名 + ⋮（保留「更多：书名」contentDescription，测试依赖）；
-        // 多选态隐藏 ⋮，行高仍保持 36dp，进出多选时网格不会跳动
-        Row(modifier = Modifier.heightIn(min = 36.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                book.title,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        // 标题行：⋮ 叠在行尾（贴书籍右侧），书名自己占满整行宽度并在放不下时滚动播放。
+        // 这样无论书名长短，⋮ 的位置都固定在最右侧，不会被书名宽度挤动。
+        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp)) {
+            MarqueeTitle(
+                text = book.title,
+                modifier = Modifier.align(Alignment.CenterStart).fillMaxWidth()
+                    .padding(end = if (selectionMode) 0.dp else TITLE_MENU_RESERVE),
             )
-            if (!selectionMode) Box {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.MoreVert, contentDescription = "更多：${book.title}")
+            if (!selectionMode) Box(Modifier.align(Alignment.CenterEnd)) {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(TITLE_MENU_RESERVE)) {
+                    Icon(
+                        Icons.Outlined.MoreVert,
+                        contentDescription = "更多：${book.title}",
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     if (onStartSelection != null) {
@@ -784,9 +804,56 @@ internal fun BookCard(
                         },
                         onClick = { menuOpen = false; confirmDelete = true },
                     )
+                    if (book.uri.startsWith("file://") || book.uri.startsWith("content://")) {
+                        DropdownMenuItem(
+                            text = { Text("删除本地文件", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Outlined.DeleteForever,
+                                    null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = { menuOpen = false; deleteFileStep = 1 },
+                        )
+                    }
                 }
             }
         }
+    }
+
+    when (deleteFileStep) {
+        1 -> AlertDialog(
+            onDismissRequest = { deleteFileStep = 0 },
+            title = { Text("删除本地文件？") },
+            text = { Text("将从磁盘删除《${book.title}》对应的文件（夹），并移除书架记录。此操作不可恢复。") },
+            // 第 1 道：确认在左（confirmButton 槽），取消在右
+            confirmButton = {
+                TextButton(onClick = { deleteFileStep = 2 }) {
+                    Text("继续", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteFileStep = 0 }) { Text("取消") } },
+        )
+
+        2 -> AlertDialog(
+            onDismissRequest = { deleteFileStep = 0 },
+            title = { Text("再次确认") },
+            text = {
+                Text("将永久删除：" + Uri.decode(book.uri) + "。删除后无法恢复，也不会进回收站。")
+            },
+            // 第 2 道：槽位互换 —— 取消在左（confirmButton），继续在右（dismissButton）
+            confirmButton = { TextButton(onClick = { deleteFileStep = 0 }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    deleteFileStep = 0
+                    fileScope.launch { fileRepo.deleteBookAndFile(book.id) }
+                }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
     }
 
     if (confirmDelete) {
@@ -1090,6 +1157,7 @@ private fun DragGhost(book: BookEntity, state: BookGridDragState, modifier: Modi
     val density = LocalDensity.current
     val ghostWidth = 92.dp
     val ghostHeight = 124.dp
+    val ghostCover = remember(book.coverPath) { book.coverPath?.let(::File) }
     val xOffset = with(density) { (state.pointerInRoot.x - state.containerBoundsInRoot.left - ghostWidth.toPx() / 2).roundToInt() }
     val yOffset = with(density) { (state.pointerInRoot.y - state.containerBoundsInRoot.top - ghostHeight.toPx() - 10.dp.toPx()).roundToInt() }
     Surface(
@@ -1100,7 +1168,7 @@ private fun DragGhost(book: BookEntity, state: BookGridDragState, modifier: Modi
     ) {
         Box {
             AsyncImage(
-                model = book.coverPath?.let(::File),
+                model = ghostCover,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
@@ -1140,19 +1208,19 @@ private fun bookProgress(book: BookEntity): Int =
         (book.currentPage * 100f / book.totalPages).roundToInt().coerceIn(0, 100)
     } else 0
 
-/** 封面右下角显示整数阅读进度；没有有效页数时显示 0%。 */
+/** 封面右下角显示整数阅读进度；没有有效页数时显示 0%。黑底白字，与左下格式胶囊同款。 */
 @Composable
 internal fun BookReadingProgressBadge(book: BookEntity, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(999.dp),
-        color = ScrimColor,
+        color = Color(0xCC1C1C1E),
         contentColor = Color.White,
     ) {
         Text(
             "${bookProgress(book)}%",
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
             fontWeight = FontWeight.SemiBold,
         )
     }
@@ -1178,26 +1246,31 @@ private fun GroupPickRow(label: String, selected: Boolean, onClick: () -> Unit) 
 
 @Composable
 private fun FormatTag(format: String, modifier: Modifier = Modifier) {
-    val label = when (runCatching { BookFormat.valueOf(format) }.getOrDefault(BookFormat.UNKNOWN)) {
-        BookFormat.CBZ -> "CBZ"
-        BookFormat.CBR -> "CBR"
-        BookFormat.CB7 -> "7Z"
-        BookFormat.CBT -> "TAR"
-        BookFormat.DIRECTORY -> "目录"
-        BookFormat.PDF_FOLDER -> "PDF合集"
-        BookFormat.UNKNOWN -> "未知"
-        else -> BookFormat.valueOf(format).name
+    // 格式名解析（含 enum 查找与字符串转换）只在 format 变化时做一次，不随每次重组重算
+    val label = remember(format) {
+        when (runCatching { BookFormat.valueOf(format) }.getOrDefault(BookFormat.UNKNOWN)) {
+            BookFormat.CBZ -> "CBZ"
+            BookFormat.CBR -> "CBR"
+            BookFormat.CB7 -> "7Z"
+            BookFormat.CBT -> "TAR"
+            BookFormat.DIRECTORY -> "目录"
+            BookFormat.PDF_FOLDER -> "PDF合集"
+            BookFormat.UNKNOWN -> "未知"
+            else -> BookFormat.valueOf(format).name
+        }
     }
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-        contentColor = MaterialTheme.colorScheme.primary,
+        // 参考图：封面底部的格式胶囊 = 黑底白字
+        color = Color(0xCC1C1C1E),
+        contentColor = Color.White,
     ) {
         Text(
             label,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            // 类型标只做提示：字号与内边距压到最小，不占封面可视面积
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
             maxLines = 1,
         )
     }

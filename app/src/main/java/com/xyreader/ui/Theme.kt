@@ -48,34 +48,37 @@ private val DarkColors = darkColorScheme(
 )
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF4355B9),
+    // —— 日间「玫瑰红」主题（严格照参考图色板）——
+    // 背景 #F6F7FA / 卡片 #FFFFFF / 主色 #FF4F8B / 浅粉 #FFE8F1
+    // 主文字 #1C1C1E / 次文字 #8E8E93 / 描边 #E5E5EA
+    primary = Color(0xFFFF4F8B),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDEE1FB),
-    onPrimaryContainer = Color(0xFF10164B),
-    secondary = Color(0xFF575DB0),
+    primaryContainer = Color(0xFFFFE8F1),
+    onPrimaryContainer = Color(0xFFB02B5E),
+    secondary = Color(0xFF8E8E93),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE1E4FA),
-    onSecondaryContainer = Color(0xFF161C55),
+    secondaryContainer = Color(0xFFFFE8F1),
+    onSecondaryContainer = Color(0xFFB02B5E),
     tertiary = Color(0xFFB02F35),
     onTertiary = Color.White,
     tertiaryContainer = Color(0xFFFFDAD4),
     onTertiaryContainer = Color(0xFF410002),
-    background = Color(0xFFF7F8FC),
-    onBackground = Color(0xFF1A1D24),
-    surface = Color.White,
-    onSurface = Color(0xFF1A1D24),
-    surfaceVariant = Color(0xFFE7E9F2),
-    onSurfaceVariant = Color(0xFF5A6070),
+    background = Color(0xFFF6F7FA),
+    onBackground = Color(0xFF1C1C1E),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF1C1C1E),
+    surfaceVariant = Color(0xFFF2F3F7),
+    onSurfaceVariant = Color(0xFF8E8E93),
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF2F4FA),
-    surfaceContainer = Color(0xFFEFF1F8),
-    surfaceContainerHigh = Color(0xFFEFF1F7),
-    surfaceContainerHighest = Color(0xFFE7E9F0),
-    outline = Color(0xFF767E93),
-    outlineVariant = Color(0xFFDDE1EC),
+    surfaceContainerLow = Color(0xFFFBFBFD),
+    surfaceContainer = Color(0xFFF6F7FA),
+    surfaceContainerHigh = Color(0xFFF2F3F7),
+    surfaceContainerHighest = Color(0xFFEAEBF1),
+    outline = Color(0xFFE5E5EA),
+    outlineVariant = Color(0xFFEDEEF2),
     inverseSurface = Color(0xFF2F3138),
     inverseOnSurface = Color(0xFFF1F0F6),
-    inversePrimary = Color(0xFFB6C0FF),
+    inversePrimary = Color(0xFFFF8AB3),
 )
 
 // Google 全家桶形状体系：大圆角表达性设计（8/12/16/24/28）
@@ -90,7 +93,7 @@ private val ArkShapes = Shapes(
 @Composable
 fun ArkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    accent: ThemeAccent = ThemeAccent.LAVENDER,
+    accent: ThemeAccent = ThemeAccent.ROSE,
     content: @Composable () -> Unit,
 ) {
     // 强调色主色系覆盖：primary / onPrimary / 容器与容器内容跟随所选强调色

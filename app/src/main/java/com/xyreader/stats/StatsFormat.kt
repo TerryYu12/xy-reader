@@ -31,6 +31,22 @@ fun formatChars(count: Long): String {
 fun formatPages(count: Long): String = "${count.coerceAtLeast(0L)} 页"
 
 /**
+ * 精确到秒的时长文案：「X 小时 Y 分 Z 秒」，删掉为 0 的高位。
+ * 用于排行榜点开后查看精确时长；调用方一般还会同时展示 [formatDuration] 的可读版本。
+ */
+fun formatPreciseDuration(ms: Long): String {
+    val totalSeconds = ms.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600
+    val minutes = (totalSeconds % 3_600) / 60
+    val seconds = totalSeconds % 60
+    return buildString {
+        if (hours > 0) append("$hours 小时 ")
+        if (hours > 0 || minutes > 0) append("$minutes 分 ")
+        append("$seconds 秒")
+    }
+}
+
+/**
  * 打卡成功提示的副标题：「今日阅读已满 5 分钟」，连续 2 天及以上追加「 · 已连续打卡 N 天」。
  * [streak] ≤ 1（含算不出的 0）时不提连续天数，避免出现「已连续打卡 1 天」这种别扭的话。
  */

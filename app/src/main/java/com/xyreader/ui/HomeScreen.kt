@@ -6,11 +6,13 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,12 +22,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FilterList
@@ -78,10 +80,13 @@ import com.xyreader.core.BookEntity
 import com.xyreader.core.QuickRead
 import com.xyreader.core.ShelfSection
 import com.xyreader.core.SortOption
+import com.xyreader.data.ArkDatabase
 import com.xyreader.data.LibraryLayoutStore
 import com.xyreader.data.applyHomeBookOrder
 import com.xyreader.data.reorderVisibleBookIds
+import com.xyreader.stats.computeReadingStats
 import java.io.File
+import java.time.LocalDate
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -95,6 +100,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenReader: (Long) -> Unit,
     onOpenGroup: (Long) -> Unit,
+    onOpenGroupManage: () -> Unit,
+    onOpenStats: () -> Unit,
 ) {
     val repo = rememberLibraryRepository()
     val context = LocalContext.current
@@ -104,12 +111,22 @@ fun HomeScreen(
     val layout by layoutStore.layout.collectAsStateWithLifecycle(initialValue = com.xyreader.data.LibraryLayout())
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // 顶部「阅读统计」卡：读本机 daily_reading 表（与统计页同一数据源），
+    // 读不到真实记录时就显示真实空状态，不虚构数值。
+    val dailyStatsFlow = remember(context) { ArkDatabase.getInstance(context).readingStatsDao().observeAll() }
+    val dailyStats by dailyStatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val readingStats = remember(dailyStats) { computeReadingStats(dailyStats, LocalDate.now()) }
+
     val scan = rememberRepoScanHandle(repo) { report ->
         scope.launch { snackbar.showSnackbar("新增 ${report.added} 本") }
     }
 
     var sort by rememberSaveable { mutableStateOf(SortOption.RECENT_READ) }
     var query by rememberSaveable { mutableStateOf("") }
+    // 顶栏搜索：默认收起（规范 2.1/3.1 要求删除常驻搜索输入框，改为搜索图标按钮）
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    // 首页分组筛选：null = 系统聚合项「全部」（含未分组书籍）
+    var selectedGroupId by rememberSaveable { mutableStateOf<Long?>(null) }
     var showAddGroup by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var previewOrder by remember { mutableStateOf<List<Long>?>(null) }
@@ -141,7 +158,10 @@ fun HomeScreen(
     val queryBooks = remember(orderedBooks, query) {
         if (query.isBlank()) orderedBooks else orderedBooks.filter { it.title.contains(query, ignoreCase = true) }
     }
-    val visibleBooks = queryBooks
+    // 分组筛选（规范 3.3）：只改变下方书籍集合，不改动顶部卡片结构
+    val visibleBooks = remember(queryBooks, selectedGroupId) {
+        if (selectedGroupId == null) queryBooks else queryBooks.filter { it.groupId == selectedGroupId }
+    }
 
     // —— 「继续阅读」焦点卡：取最近阅读（lastReadAt 最大且有进度）的一本 ——
     val recentBook = remember(allBooks) {
@@ -160,24 +180,36 @@ fun HomeScreen(
     val groupBookCounts = remember(groups, allBooks) {
         groups.associate { group -> group.id to allBooks.count { it.groupId == group.id } }
     }
-    val onToggleFavorite: (BookEntity) -> Unit = { book -> scope.launch { repo.toggleFavorite(book.id) } }
-    val onDeleteBook: (BookEntity) -> Unit = { book -> scope.launch { repo.deleteBook(book.id) } }
-    val onMoveToGroup: (BookEntity, Long?) -> Unit = { book, groupId ->
-        scope.launch { repo.moveBookToGroup(book.id, groupId) }
+    // —— 传给网格的回调一律 remember ——
+    // 否则每次重组（例如统计卡每 30 秒刷新、搜索框输入）都会生成新的 lambda 实例，
+    // BookGrid 因参数 equals 不成立而整块重组，网格里所有卡片的封面、角标、菜单都会跟着重建。
+    val onToggleFavorite: (BookEntity) -> Unit = remember(repo, scope) {
+        { book -> scope.launch { repo.toggleFavorite(book.id) } }
     }
-    val onReorder: (List<BookEntity>) -> Unit = { reorderedVisible ->
-        val reorderedIds = reorderVisibleBookIds(
-            allBookIds = orderedBooks.map(BookEntity::id),
-            visibleBookIds = visibleBooks.map(BookEntity::id),
-            reorderedVisibleIds = reorderedVisible.map(BookEntity::id),
-        )
-        previewOrder = reorderedIds
-        scope.launch { layoutStore.setHomeManualOrder(reorderedIds) }
+    val onDeleteBook: (BookEntity) -> Unit = remember(repo, scope) {
+        { book -> scope.launch { repo.deleteBook(book.id) } }
     }
+    val onMoveToGroup: (BookEntity, Long?) -> Unit = remember(repo, scope) {
+        { book, groupId -> scope.launch { repo.moveBookToGroup(book.id, groupId) } }
+    }
+    val onReorder: (List<BookEntity>) -> Unit = remember(orderedBooks, visibleBooks, scope, layoutStore) {
+        { reorderedVisible ->
+            val reorderedIds = reorderVisibleBookIds(
+                allBookIds = orderedBooks.map(BookEntity::id),
+                visibleBookIds = visibleBooks.map(BookEntity::id),
+                reorderedVisibleIds = reorderedVisible.map(BookEntity::id),
+            )
+            previewOrder = reorderedIds
+            scope.launch { layoutStore.setHomeManualOrder(reorderedIds) }
+        }
+    }
+    // 网格内边距是常量，固定复用同一个 PaddingValues 实例
+    val gridContentPadding = remember { PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp) }
 
     // —— 右下角「开始阅读」菜单：四个动作的选取与兜底提示 ——
     var readMenuOpen by remember { mutableStateOf(false) }
-    val onQuickRead: (QuickReadKind) -> Unit = { kind ->
+    val onQuickRead: (QuickReadKind) -> Unit = remember(visibleBooks, allBooks, scope, snackbar) {
+      { kind ->
         readMenuOpen = false
         val book = when (kind) {
             QuickReadKind.SHELF_LAST -> QuickRead.lastRead(visibleBooks)
@@ -199,6 +231,7 @@ fun HomeScreen(
         } else {
             onOpenReader(book.id)
         }
+      }
     }
 
     Scaffold(
@@ -209,19 +242,45 @@ fun HomeScreen(
                 HomeTopBar(
                     query = query,
                     onQueryChange = { query = it },
+                    searchOpen = searchOpen,
+                    onToggleSearch = {
+                        val next = !searchOpen
+                        searchOpen = next
+                        // 收起搜索时清空关键词，避免留下看不见的过滤条件
+                        if (!next) query = ""
+                    },
                     onOpenSettings = onOpenSettings,
                 )
 
-                // 「继续阅读」焦点卡：无符合条件的书时整卡不显示
-                recentBook?.let { book ->
-                    ContinueReadingCard(book = book, onContinue = { onOpenReader(book.id) })
+                // 首页顶部两卡并排（规范 3.2）：左「继续阅读」较宽（2 份）＋右「阅读统计」（1 份）
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ContinueReadingCard(
+                        book = recentBook,
+                        onContinue = { recentBook?.let { onOpenReader(it.id) } },
+                        modifier = Modifier.weight(2f).fillMaxHeight(),
+                    )
+                    ReadingStatsCard(
+                        todayMs = readingStats.todayDurationMs,
+                        streakDays = readingStats.currentStreak,
+                        hasRecord = readingStats.totalDurationMs > 0L || readingStats.readingDays > 0,
+                        onClick = onOpenStats,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                 }
 
                 HomeGroupFolderSection(
                     groups = groups,
                     bookCounts = groupBookCounts,
+                    totalCount = allBooks.size,
+                    selectedGroupId = selectedGroupId,
                     dragState = dragState,
-                    onOpenGroup = onOpenGroup,
+                    onSelectGroup = { selectedGroupId = it },
+                    onOpenGroupManage = onOpenGroupManage,
                     onRenameGroup = { groupId, name ->
                         val duplicate = groups.any {
                             it.id != groupId && it.name.equals(name.trim(), ignoreCase = true)
@@ -300,7 +359,7 @@ fun HomeScreen(
                         onToggleFavorite = onToggleFavorite,
                         onDeleteBook = onDeleteBook,
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                        contentPadding = gridContentPadding,
                         onMoveToGroup = onMoveToGroup,
                         onReorderBooks = onReorder,
                         dropTargets = dropTargets,
@@ -365,6 +424,8 @@ fun HomeScreen(
 private fun HomeTopBar(
     query: String,
     onQueryChange: (String) -> Unit,
+    searchOpen: Boolean,
+    onToggleSearch: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val themeMode = LocalThemeMode.current
@@ -374,47 +435,66 @@ private fun HomeTopBar(
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        // 窄屏隐藏品牌文字（对应设计稿 max-width:360px 断点）
-        val showBrandText = maxWidth > 360.dp
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = RoundedCornerShape(9.dp),
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(30.dp),
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // 窄屏隐藏品牌文字（对应设计稿 max-width:360px 断点）
+            val showBrandText = maxWidth > 360.dp
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // 左上角继续使用应用自身的图标（前景图），底色改为跟随「设置 → 强调色」的渐变，
+                // 不再固定使用 ic_launcher_background 的固定色块。
+                val accent = LocalThemeAccent.current
+                Box(
+                    Modifier.size(30.dp).clip(RoundedCornerShape(9.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(accent.primary(dark), accent.container(dark)),
+                            ),
+                        ),
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_launcher_foreground),
+                        contentDescription = "XY-READER",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                if (showBrandText) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "XY-READER",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                // 右侧固定顺序：搜索｜日夜切换｜设置（设置最右）；常驻搜索输入框已移除
+                IconButton(onClick = onToggleSearch) {
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = if (searchOpen) "关闭搜索" else "搜索",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { setThemeMode(if (dark) ThemeMode.LIGHT else ThemeMode.DARK) }) {
+                    Icon(
+                        // 深色时显太阳（切浅色），浅色时显月亮（切深色）
+                        if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                        contentDescription = if (dark) "切换到浅色模式" else "切换到深色模式",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "设置", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            if (showBrandText) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "XY-READER",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            SearchField(query = query, onQueryChange = onQueryChange, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(4.dp))
-            IconButton(onClick = { setThemeMode(if (dark) ThemeMode.LIGHT else ThemeMode.DARK) }) {
-                Icon(
-                    // 深色时显太阳（切浅色），浅色时显月亮（切深色）
-                    if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                    contentDescription = "切换明暗主题",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Outlined.Settings, contentDescription = "设置", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        }
+        // 搜索输入框默认隐藏，点搜索图标临时展开；收起时清空关键词，避免不可见的过滤条件
+        if (searchOpen) {
+            Spacer(Modifier.height(8.dp))
+            SearchField(query = query, onQueryChange = onQueryChange, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -462,86 +542,212 @@ private fun SearchField(
 }
 
 /**
- * 「继续阅读」紧凑横条（对应设计源 `.continue-strip` 的手机版形态）：
- * 左缩略图 + 单行书名 + 「第 N 页 · P%」+ 细进度条 + 右侧小胶囊按钮。
+ * 首页顶部左侧「继续阅读」卡（规范 3.2）：标题「继续阅读」+ 小封面 + 真实书名 +
+ * 现有位置信息 + 继续阅读按钮；不加独立进度条，标题前不加装饰性小图标。
+ * 没有可继续的书时显示真实空状态。
  */
 @Composable
-private fun ContinueReadingCard(book: BookEntity, onContinue: () -> Unit) {
-    val progress = readProgress(book)
-    val shape = RoundedCornerShape(16.dp)
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+private fun ContinueReadingCard(
+    book: BookEntity?,
+    onContinue: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = modifier
             .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 缩略图：无封面时用默认封面（渐变艺术）；有真实封面走 AsyncImage
-        Box(
-            modifier = Modifier.size(width = 44.dp, height = 56.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (book.coverPath == null) {
-                DefaultBookCover(
-                    book = book,
-                    modifier = Modifier.fillMaxSize(),
-                    compact = true,
-                    showFormatBadge = false,
-                )
-            }
-            AsyncImage(
-                model = book.coverPath?.let(::File),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
+        Text(
+            "继续阅读",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(8.dp))
+        if (book == null) {
             Text(
-                book.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                "还没有阅读记录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                "第 ${book.currentPage} 页 · $progress%",
-                style = MaterialTheme.typography.bodySmall,
+                "打开一本书开始阅读",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (progress > 0) {
-                Spacer(Modifier.height(7.dp))
-                ProgressTrack(
-                    progress = progress,
-                    height = 3.dp,
-                    modifier = Modifier.widthIn(max = 240.dp),
-                )
+        } else {
+            val progress = readProgress(book)
+            // 位置信息沿用现有定位单位，读不到总页数时不编造页数
+            val position = when {
+                book.totalPages > 0 && book.currentPage > 0 -> "第 ${book.currentPage} 页 · $progress%"
+                book.currentPage > 0 -> "第 ${book.currentPage} 页"
+                else -> "尚未开始"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 按路径记住 File：否则父层重组时每次新建对象，Coil 会跟着重建请求
+                val coverFile = remember(book.coverPath) { book.coverPath?.let(::File) }
+                Box(
+                    modifier = Modifier.size(width = 34.dp, height = 46.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (book.coverPath == null) {
+                        DefaultBookCover(
+                            book = book,
+                            modifier = Modifier.fillMaxSize(),
+                            compact = true,
+                            showFormatBadge = false,
+                        )
+                    }
+                    AsyncImage(
+                        model = coverFile,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    MarqueeTitle(
+                        text = book.title,
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        position,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // 继续阅读按钮：保留三角符号，方角矩形，与右下角圆形悬浮按钮区分
+            Surface(
+                onClick = onContinue,
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "继续阅读",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
             }
         }
-        Spacer(Modifier.width(10.dp))
-        Surface(
-            onClick = onContinue,
-            shape = RoundedCornerShape(999.dp),
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("继续阅读", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-            }
+    }
+}
+
+/**
+ * 首页顶部右侧「阅读统计」卡（规范 3.2）：标题 + 三根竖柱图标，摘要用真实可取得的
+ * 指标（今日时长、当前连续打卡天数）；没有记录时显示真实空状态。整卡点击进入统计详情。
+ */
+@Composable
+private fun ReadingStatsCard(
+    todayMs: Long,
+    streakDays: Int,
+    hasRecord: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ThreeBarsIcon()
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "阅读统计",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        if (hasRecord) {
+            val minutes = (todayMs / 60_000L).coerceAtLeast(0L)
+            Text(
+                "今日阅读",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Text(
+                if (minutes <= 0L) "<1 分钟" else "$minutes 分钟",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "连续 $streakDays 天",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        } else {
+            Text(
+                "暂无阅读记录",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+/** 阅读统计的简洁三根竖柱图标（不加横线或装饰）。 */
+@Composable
+private fun ThreeBarsIcon(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        listOf(7.dp, 12.dp, 9.dp).forEach { barHeight ->
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(barHeight)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
         }
     }
 }
@@ -621,24 +827,6 @@ private fun LibraryToolbar(
                     )
                 }
             }
-        }
-    }
-}
-
-/** 细进度条：底色轨道 + 主色填充；只填 progress>0 的部分。 */
-@Composable
-private fun ProgressTrack(progress: Int, height: Dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.fillMaxWidth().height(height)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)),
-    ) {
-        if (progress > 0) {
-            Box(
-                Modifier.fillMaxHeight()
-                    .fillMaxWidth((progress.coerceIn(1, 100)) / 100f)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
         }
     }
 }

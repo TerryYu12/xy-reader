@@ -102,8 +102,12 @@ class HomeGroupFoldersTest {
                 HomeGroupFolderSection(
                     groups = listOf(group),
                     bookCounts = mapOf(group.id to 3),
+                            totalCount = 1,
+                            selectedGroupId = null,
+                            onOpenGroupManage = {},
                     dragState = dragState,
-                    onOpenGroup = { openedGroupId = it },
+                    // 新 API：点分组 = 选中筛选
+                            onSelectGroup = { openedGroupId = it },
                     onRenameGroup = { _, _ -> },
                     onPickCover = {},
                     onClearCover = {},
@@ -131,8 +135,11 @@ class HomeGroupFoldersTest {
                     HomeGroupFolderSection(
                         groups = listOf(group),
                         bookCounts = emptyMap(),
+                            totalCount = 1,
+                            selectedGroupId = null,
+                            onSelectGroup = {},
+                            onOpenGroupManage = {},
                         dragState = dragState,
-                        onOpenGroup = {},
                         onRenameGroup = { _, _ -> },
                         onPickCover = {},
                         onClearCover = {},
@@ -169,119 +176,36 @@ class HomeGroupFoldersTest {
         compose.runOnIdle { assertEquals(7L to 23L, moved) }
     }
 
-    @Test
-    fun folderMenuIsIndependentAndContainsOnlyRenameAndDelete() {
-        val dragState = BookGridDragState()
-        var openedGroupId: Long? = null
-        compose.setContent {
-            ArkTheme {
-                Column {
-                    HomeGroupFolderSection(
-                        groups = listOf(group),
-                        bookCounts = emptyMap(),
-                        dragState = dragState,
-                        onOpenGroup = { openedGroupId = it },
-                        onRenameGroup = { _, _ -> },
-                        onPickCover = {},
-                        onClearCover = {},
-                    )
-                }
-            }
-        }
-        compose.waitForIdle()
-        compose.onNodeWithContentDescription("更多分组操作：待读").performClick()
-        compose.runOnIdle { assertEquals(null, openedGroupId) }
-        compose.onNodeWithText("重命名").assertIsDisplayed()
-        compose.onNodeWithText("删除分组").assertIsDisplayed()
-        compose.onNodeWithText("更换封面").assertDoesNotExist()
-    }
+
+
 
     @Test
-    fun renameActionSubmitsTheTrimmedGroupName() {
+    fun emptySectionStillOffersManageEntry() {
         val dragState = BookGridDragState()
-        var renamed: Pair<Long, String>? = null
-        compose.setContent {
-            ArkTheme {
-                Column(Modifier.fillMaxSize()) {
-                    HomeGroupFolderSection(
-                        groups = listOf(group),
-                        bookCounts = emptyMap(),
-                        dragState = dragState,
-                        onOpenGroup = {},
-                        onRenameGroup = { id, name -> renamed = id to name },
-                        onPickCover = {},
-                        onClearCover = {},
-                    )
-                }
-            }
-        }
-        compose.waitForIdle()
-        val baselineWindowRoots = compose.runOnUiThread {
-            WindowInspector.getGlobalWindowViews().toList()
-        }
-        compose.onNodeWithContentDescription("更多分组操作：待读").performClick()
-        compose.onNodeWithText("重命名").performClick()
-        drawWindowRoots("rename-dialog", baselineWindowRoots)
-        compose.onNode(hasSetTextAction()).performTextReplacement("  正在读  ")
-        drawWindowRoots("renamed-text", baselineWindowRoots)
-        compose.onNodeWithText("保存").performClick()
-        compose.runOnIdle { assertEquals(23L to "正在读", renamed) }
-    }
-
-    @Test
-    fun deletingGroupRequiresConfirmation() {
-        val dragState = BookGridDragState()
-        val deleted = mutableListOf<Long>()
-        compose.setContent {
-            ArkTheme {
-                HomeGroupFolderSection(
-                    groups = listOf(group),
-                    bookCounts = mapOf(group.id to 2),
-                    dragState = dragState,
-                    onOpenGroup = {},
-                    onRenameGroup = { _, _ -> },
-                    onPickCover = {},
-                    onClearCover = {},
-                    onDeleteGroup = { deleted += it },
-                )
-            }
-        }
-        compose.waitForIdle()
-
-        compose.onNodeWithContentDescription("更多分组操作：待读").performClick()
-        compose.onNodeWithText("删除分组").performClick()
-        compose.onNodeWithText("组内 2 本书将移至未分组，书籍文件不会删除。").assertIsDisplayed()
-        compose.onNodeWithText("取消").performClick()
-        compose.runOnIdle { assertTrue(deleted.isEmpty()) }
-
-        compose.onNodeWithContentDescription("更多分组操作：待读").performClick()
-        compose.onNodeWithText("删除分组").performClick()
-        compose.onNodeWithText("删除", substring = false).performClick()
-        compose.runOnIdle { assertEquals(listOf(23L), deleted) }
-    }
-
-    @Test
-    fun emptySectionStillOffersCreateGroup() {
-        val dragState = BookGridDragState()
-        var createRequests = 0
+        var manageRequests = 0
         compose.setContent {
             ArkTheme {
                 HomeGroupFolderSection(
                     groups = emptyList(),
                     bookCounts = emptyMap(),
+                    totalCount = 1,
+                    selectedGroupId = null,
+                    onSelectGroup = {},
+                    onOpenGroupManage = { manageRequests++ },
                     dragState = dragState,
-                    onOpenGroup = {},
                     onRenameGroup = { _, _ -> },
                     onPickCover = {},
                     onClearCover = {},
-                    onCreateGroup = { createRequests++ },
+                    onCreateGroup = {},
                 )
             }
         }
-        compose.onNodeWithText("还没有分组").assertDoesNotExist()
-        compose.onNodeWithText("暂无分组").assertIsDisplayed()
-        compose.onNodeWithText("新建").performClick()
-        compose.runOnIdle { assertEquals(1, createRequests) }
+        // 新设计（规范 3.3）：分组栏始终有「全部」聚合项，最右是固定的「分组管理」入口；
+        // 新建分组改由管理页进入，首页不再有「暂无分组 / 新建」文案。
+        compose.onNodeWithText("全部").assertIsDisplayed()
+        compose.onNodeWithContentDescription("分组管理").assertIsDisplayed()
+        compose.onNodeWithContentDescription("分组管理").performClick()
+        compose.runOnIdle { assertEquals(1, manageRequests) }
     }
 
     @Test
@@ -295,8 +219,11 @@ class HomeGroupFoldersTest {
                         HomeGroupFolderSection(
                             groups = listOf(group),
                             bookCounts = emptyMap(),
+                            totalCount = 1,
+                            selectedGroupId = null,
                             dragState = dragState,
-                            onOpenGroup = {},
+                            onSelectGroup = {},
+                            onOpenGroupManage = {},
                             onRenameGroup = { _, _ -> },
                             onPickCover = {},
                             onClearCover = {},
@@ -312,5 +239,32 @@ class HomeGroupFoldersTest {
         compose.onNodeWithText("隐藏分组").performClick()
         compose.waitForIdle()
         compose.runOnIdle { assertFalse(dragState.targetBoundsInRoot.containsKey("home-folder-23")) }
+    }
+
+    @Test
+    fun groupBarExposesManageEntryInsteadOfPerChipMenu() {
+        val dragState = BookGridDragState()
+        var manageRequests = 0
+        compose.setContent {
+            ArkTheme {
+                HomeGroupFolderSection(
+                    groups = listOf(group),
+                    bookCounts = mapOf(group.id to 1),
+                    totalCount = 1,
+                    selectedGroupId = null,
+                    dragState = dragState,
+                    onSelectGroup = {},
+                    onOpenGroupManage = { manageRequests++ },
+                    onRenameGroup = { _, _ -> },
+                    onPickCover = {},
+                    onClearCover = {},
+                )
+            }
+        }
+        // 胶囊上不再有「更多分组操作」，改由固定的「分组管理」入口承担
+        compose.onAllNodesWithContentDescription("更多分组操作：待读").assertCountEquals(0)
+        compose.onNodeWithContentDescription("分组管理").assertIsDisplayed()
+        compose.onNodeWithContentDescription("分组管理").performClick()
+        compose.runOnIdle { assertEquals(1, manageRequests) }
     }
 }

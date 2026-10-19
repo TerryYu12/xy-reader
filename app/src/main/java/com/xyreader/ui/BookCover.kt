@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -74,7 +75,10 @@ internal fun DefaultBookCover(
     showFormatBadge: Boolean = true,
 ) {
     val theme = CoverTheme.forTitle(book.title)
-    BoxWithConstraints(modifier = modifier.background(Brush.verticalGradient(*theme.stops.toTypedArray()))) {
+    // 渐变 brush 只在主题变化时创建一次：默认封面在小屏上会同时渲染十几张，
+    // 每次重组都 toTypedArray() + 新建 Brush 是白开销
+    val coverBrush = remember(theme) { Brush.verticalGradient(*theme.stops.toTypedArray()) }
+    BoxWithConstraints(modifier = modifier.background(coverBrush)) {
         val narrow = maxWidth < 120.dp
         val veryNarrow = maxWidth < 92.dp
         val horizontalPad = when {

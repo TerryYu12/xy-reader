@@ -1,5 +1,8 @@
 package com.xyreader.ui
 
+import com.xyreader.data.UpdateInfo
+import com.xyreader.data.checkForUpdate
+
 import android.widget.Toast
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -19,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Home
@@ -63,6 +68,7 @@ import androidx.compose.runtime.withFrameNanos
 private object Routes {
     const val HOME = "home"
     const val SHELF = "shelf"
+    const val REPOS_HUB = "repos-hub"
     const val SETTINGS = "settings"
     const val REPOS = "settings/repos"
     const val REPO_CONFIG = "settings/repo-config/{repoId}"
@@ -72,6 +78,8 @@ private object Routes {
     const val READER_CONFIG = "settings/reader-config"
     const val PRIVACY = "settings/privacy"
     const val SUPPORT = "settings/support"
+    const val BOOK_SOURCES = "settings/book-sources"
+    const val BOOK_SOURCE_SEARCH = "settings/book-sources/search"
     const val GROUP_BOOKS = "shelf/group/{groupId}"
     const val BOOKMARKS = "bookmarks"
     const val STATS = "stats"
@@ -93,17 +101,20 @@ private object Routes {
  *    startFromBeginning: Boolean = false；restart=true 表示无视已存进度从头读）。
  */
 @Composable
-fun ArkNavHost() {
+fun ArkNavHost(
+    automaticUpdateCheck: suspend (String) -> Result<UpdateInfo?> = ::checkForUpdate,
+) {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
     val homeSelected = currentRoute == Routes.HOME
     val shelfSelected = currentRoute == Routes.SHELF
+    val reposSelected = currentRoute == Routes.REPOS_HUB
     val isWideLayout = LocalConfiguration.current.screenWidthDp >= 800
     val isReaderRoute = currentRoute?.startsWith("reader/") == true
     val showSideRail = isWideLayout && !isReaderRoute
-    val showBottomBar = !isWideLayout && (homeSelected || shelfSelected)
+    val showBottomBar = !isWideLayout && (homeSelected || shelfSelected || reposSelected)
     val selectedSection = if (currentRoute == Routes.SHELF_LIST) {
         backStackEntry?.arguments?.getString("section")?.let { value ->
             ShelfSection.entries.firstOrNull { it.name == value }
@@ -166,8 +177,10 @@ fun ArkNavHost() {
                 FloatingNavBar(
                     homeSelected = homeSelected,
                     shelfSelected = shelfSelected,
+                    reposSelected = reposSelected,
                     onHome = { nav.navigateTab(Routes.HOME) },
                     onShelf = { nav.navigateTab(Routes.SHELF) },
+                    onRepos = { nav.navigateTab(Routes.REPOS_HUB) },
                 )
             }
         },
@@ -219,10 +232,22 @@ fun ArkNavHost() {
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onOpenReader = { bookId -> nav.openBook(bookId, page = 0) },
                     onOpenGroup = { groupId -> nav.navigate("shelf/group/$groupId") },
+                    onOpenGroupManage = { nav.navigate(Routes.GROUPS) },
+                    onOpenStats = { nav.navigate(Routes.STATS) },
                 )
             }
 
             // 书架：分组 chips + 2x2 入口卡片
+            composable(Routes.REPOS_HUB) {
+                ReposHubScreen(
+                    onOpenLocalRepos = { nav.navigate(Routes.REPOS) },
+                    onOpenRemoteRepos = { nav.navigate(Routes.REMOTE_REPOS) },
+                    onOpenGdrive = { nav.navigate(Routes.GDRIVE) },
+                    onOpenBookSources = { nav.navigate(Routes.BOOK_SOURCES) },
+                    onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                )
+            }
+
             composable(Routes.SHELF) {
                 ShelfScreen(
                     onOpenBook = { bookId -> nav.openBookDetail(bookId) },
@@ -241,9 +266,6 @@ fun ArkNavHost() {
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onBack = { nav.popBackStack() },
-                    onOpenRepos = { nav.navigate(Routes.REPOS) },
-                    onOpenRemoteRepos = { nav.navigate(Routes.REMOTE_REPOS) },
-                    onOpenGdrive = { nav.navigate(Routes.GDRIVE) },
                     onOpenGroups = { nav.navigate(Routes.GROUPS) },
                     onOpenReaderConfig = { nav.navigate(Routes.READER_CONFIG) },
                     onOpenPrivacy = { nav.navigate(Routes.PRIVACY) },
@@ -296,6 +318,17 @@ fun ArkNavHost() {
             // 支持作者（微信收款码）
             composable(Routes.SUPPORT) {
                 SupportScreen(onBack = { nav.popBackStack() })
+            }
+
+            // 在线书源：源管理与搜索（源由用户自行导入，应用不携带任何源数据）
+            composable(Routes.BOOK_SOURCES) {
+                BookSourcesScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenSearch = { nav.navigate(Routes.BOOK_SOURCE_SEARCH) },
+                )
+            }
+            composable(Routes.BOOK_SOURCE_SEARCH) {
+                BookSourceSearchScreen(onBack = { nav.popBackStack() })
             }
 
             // 分组书列表
@@ -352,6 +385,8 @@ fun ArkNavHost() {
                     onStartFromBeginning = { nav.openBookFromStart(bookId) },
                     onOpenChapter = { page -> nav.openBookAtPage(bookId, page) },
                     onDeleted = { nav.popBackStack() },
+                    // 详情页「书签」标签：点书签直接跳到那一页
+                    onOpenAtPage = { page -> nav.openBookAtPage(bookId, page) },
                 )
             }
 
@@ -384,7 +419,7 @@ fun ArkNavHost() {
         }
             }
             // 全局更新器宿主与路由同级，切到设置/书架/阅读页后仍可呈现手动检查结果。
-            UpdateHost()
+            UpdateHost(check = automaticUpdateCheck)
             if (importing) {
                 // 导入中遮罩：大文件（数百 MB 漫画）拷贝可能停留数秒，给用户明确反馈
                 Box(
@@ -411,23 +446,23 @@ fun ArkNavHost() {
 private fun FloatingNavBar(
     homeSelected: Boolean,
     shelfSelected: Boolean,
+    reposSelected: Boolean,
     onHome: () -> Unit,
     onShelf: () -> Unit,
+    onRepos: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .navigationBarsPadding()
-            .padding(bottom = 16.dp),
-        shape = RoundedCornerShape(32.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        tonalElevation = 3.dp,
+            .navigationBarsPadding(),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         shadowElevation = 8.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             NavTab(
@@ -446,11 +481,19 @@ private fun FloatingNavBar(
                 iconUnselected = Icons.AutoMirrored.Outlined.MenuBook,
                 onClick = onShelf,
             )
+            NavTab(
+                modifier = Modifier.weight(1f),
+                selected = reposSelected,
+                label = "仓库",
+                iconSelected = Icons.Filled.Storage,
+                iconUnselected = Icons.Outlined.Storage,
+                onClick = onRepos,
+            )
         }
     }
 }
 
-/** 悬浮底栏的单个 tab：图标胶囊（选中 primaryContainer 底）+ 文字标签 */
+/** 悬浮底栏的单个 tab：选中项 = 浅粉胶囊 + 玫瑰红图标与文字；未选中 = 灰。文字强制横排单行。 */
 @Composable
 private fun NavTab(
     modifier: Modifier = Modifier,
@@ -462,32 +505,30 @@ private fun NavTab(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        ) {
-            Icon(
-                if (selected) iconSelected else iconUnselected,
-                contentDescription = label,
-                modifier = Modifier
-                    .padding(horizontal = 18.dp, vertical = 8.dp)
-                    .size(22.dp),
-                tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.width(8.dp))
+        Icon(
+            if (selected) iconSelected else iconUnselected,
+            contentDescription = label,
+            modifier = Modifier.size(22.dp),
+            tint = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(6.dp))
         Text(
             label,
+            maxLines = 1,
+            softWrap = false,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.onSurface
+            color = if (selected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

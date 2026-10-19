@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /**
- * 更新检查节流的 DataStore（文件名 "update_prefs"）。
+ * 更新检查记录的 DataStore（文件名 "update_prefs"）。
  *
- * 只存一个时间戳：上次成功检查更新的时刻（毫秒），用于「启动自检 24h 限频」。
+ * 保存上次成功手动检查的时间戳（毫秒）。启动检查不再用它限频；保留历史偏好兼容。
  * 与主题（theme_mode）、阅读配置（reader_prefs）等文件分离——同一 preferences
  * 文件全局只能有一个 DataStore 实例，故每个用途各用一个文件。
  * 写法参照 [ThemePrefsStore]：顶层委托保证实例唯一，多处 new 本类不会重复打开文件。

@@ -14,8 +14,20 @@ object AppGraph {
     @Volatile
     private var repo: LibraryRepository? = null
 
+    @Volatile
+    private var bookDownloads: BookDownloadManager? = null
+
     fun libraryRepository(context: Context): LibraryRepository =
         repo ?: synchronized(this) {
             repo ?: LibraryRepositoryImpl(context.applicationContext).also { repo = it }
+        }
+
+    /**
+     * 书籍下载管理器（全局单例）：任务记录与系统下载任务一一对应，
+     * 多实例会各存一份记录，因此必须唯一。
+     */
+    internal fun bookDownloads(context: Context): BookDownloadManager =
+        bookDownloads ?: synchronized(this) {
+            bookDownloads ?: BookDownloadManager(context.applicationContext).also { bookDownloads = it }
         }
 }

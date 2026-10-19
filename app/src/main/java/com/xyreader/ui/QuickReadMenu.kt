@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Autorenew
 import androidx.compose.material.icons.outlined.Casino
@@ -35,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /** 「开始阅读」菜单的四个动作（顺序即菜单展示顺序） */
@@ -95,24 +98,38 @@ internal fun QuickReadMenuOverlay(
                     }
                 }
             }
-            FloatingActionButton(
+            // 悬浮按钮重设计：不再是粉色圆钮里的播放三角，
+            // 改为玫瑰红实心圆 + 白色「书本」图标（表达「开始阅读」而非「播放」），
+            // 展开时切成浅粉圆 + 玫瑰红关闭图标；内圈留一道白色高光边增强层次。
+            Surface(
                 onClick = onToggle,
+                modifier = Modifier.size(58.dp),
                 shape = CircleShape,
-                containerColor = if (open) {
-                    MaterialTheme.colorScheme.tertiaryContainer
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-                contentColor = if (open) {
-                    MaterialTheme.colorScheme.onTertiaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onPrimary
-                },
+                color = if (open) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.primary,
+                contentColor = if (open) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onPrimary,
+                shadowElevation = 8.dp,
             ) {
-                Icon(
-                    imageVector = if (open) Icons.Outlined.Close else Icons.Filled.PlayArrow,
-                    contentDescription = if (open) "关闭阅读菜单" else "开始阅读",
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
+                            .border(
+                                width = 1.5.dp,
+                                color = if (open) Color.Transparent
+                                else Color.White.copy(alpha = 0.35f),
+                                shape = CircleShape,
+                            ),
+                    )
+                    Icon(
+                        imageVector = if (open) Icons.Outlined.Close
+                        else Icons.AutoMirrored.Outlined.MenuBook,
+                        contentDescription = if (open) "关闭阅读菜单" else "开始阅读",
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
             }
         }
     }

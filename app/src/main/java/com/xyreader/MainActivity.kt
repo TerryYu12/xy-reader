@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                 insetsController.isAppearanceLightNavigationBars = !darkTheme
             }
             val accent by themePrefs.accent.collectAsStateWithLifecycle(
-                initialValue = ThemeAccent.LAVENDER,
+                initialValue = ThemeAccent.ROSE,
             )
             // 自动旋屏（重力感应）：默认关闭（锁定竖屏）
             val autoRotate by displayPrefs.autoRotate.collectAsStateWithLifecycle(

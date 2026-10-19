@@ -3,6 +3,16 @@ package com.xyreader.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.xyreader.stats.BookDurationBar
+import com.xyreader.stats.BookDurationStat
+import com.xyreader.stats.buildBookDurationRanking
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,16 +79,25 @@ private const val RECENT_COLUMNS = 10
 @Composable
 fun ReadingStatsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val dailyFlow = remember(context) { ArkDatabase.getInstance(context).readingStatsDao().observeAll() }
-    val records by dailyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val dao = remember(context) { ArkDatabase.getInstance(context).readingStatsDao() }
+    val records by remember(dao) { dao.observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    // 分书时长（book_reading）：只统计真正计时到的书；缺数据时排行榜如实显示「暂无分书时长记录」
+    val bookRows by remember(dao) { dao.observeBookDurations() }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val today = remember { LocalDate.now() }
     val stats = remember(records, today) { computeReadingStats(records, today) }
     val cells = remember(records, today) { recentDays(records, today, RECENT_DAYS) }
+    val bars = remember(bookRows) {
+        buildBookDurationRanking(
+            bookRows.map { BookDurationStat(bookId = it.bookId, title = it.title, durationMs = it.durationMs) },
+        )
+    }
 
     ReadingStatsContent(
         stats = stats,
         cells = cells,
         today = today,
+        bars = bars,
         selectedFrame = LocalCoverFrame.current,
         onSelectFrame = LocalSetCoverFrame.current,
         onBack = onBack,
@@ -91,10 +110,13 @@ internal fun ReadingStatsContent(
     stats: ReadingStats,
     cells: List<DayCell>,
     today: LocalDate,
+    bars: List<BookDurationBar>,
     selectedFrame: StreakTier?,
     onSelectFrame: (StreakTier?) -> Unit,
     onBack: () -> Unit,
 ) {
+    var tabName by rememberSaveable { mutableStateOf(StatsTab.DETAIL.name) }
+    val current = StatsTab.values().firstOrNull { it.name == tabName } ?: StatsTab.DETAIL
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -109,13 +131,128 @@ internal fun ReadingStatsContent(
                 subtitle = "数据仅保存在本机，不会上传",
                 onBack = onBack,
             )
-            StatsSummaryCard(stats)
-            CheckInCard(stats)
-            RecentDaysCard(cells, today)
-            BadgesCard(stats)
-            FramePickerCard(stats, selectedFrame, onSelectFrame)
+            // 规范 §6.1：三个标签名称与顺序固定为 详情｜日历｜成就
+            StatsTabRow(current) { tabName = it.name }
+            when (current) {
+                StatsTab.DETAIL -> {
+                    StatsSummaryCard(stats)
+                    BookDurationRankingCard(bars)
+                }
+                StatsTab.CALENDAR -> {
+                    CheckInCard(stats)
+                    RecentDaysCard(cells, today)
+                }
+                StatsTab.ACHIEVEMENTS -> {
+                    BadgesCard(stats)
+                    FramePickerCard(stats, selectedFrame, onSelectFrame)
+                }
+            }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** 阅读统计的三个标签（规范 §6.1：名称与顺序固定，不得混用） */
+private enum class StatsTab(val label: String) {
+    DETAIL("详情"),
+    CALENDAR("日历"),
+    ACHIEVEMENTS("成就"),
+}
+
+@Composable
+private fun StatsTabRow(current: StatsTab, onSelect: (StatsTab) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StatsTab.values().forEach { tab ->
+            val selected = tab == current
+            Surface(
+                onClick = { onSelect(tab) },
+                modifier = Modifier.weight(1f).height(36.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        tab.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 柱子最高高度（其余的高度由比例算） */
+private val BAR_MAX_HEIGHT = 132.dp
+
+/**
+ * 按书累计时长的竖向柱状排行榜（规范 §6.2）。
+ *
+ * 柱子自下向上增长、按时长降序；书籍多时横向滚动；点柱子看完整书名与精确时长。
+ * 没有分书记录时如实提示，不反推、不伪造。
+ */
+@Composable
+private fun BookDurationRankingCard(bars: List<BookDurationBar>) {
+    var selected by remember { mutableStateOf<BookDurationBar?>(null) }
+    StatsCard(title = "阅读时长排行", subtitle = "每本书的累计阅读时长，从高到低") {
+        if (bars.isEmpty()) {
+            Text(
+                "暂无分书时长记录",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                bars.forEach { bar ->
+                    DurationBar(bar) { selected = bar }
+                }
+            }
+        }
+    }
+    selected?.let { bar ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(bar.stat.title) },
+            text = { Text("累计阅读时长：" + bar.preciseLabel) },
+            confirmButton = { TextButton(onClick = { selected = null }) { Text("关闭") } },
+        )
+    }
+}
+
+@Composable
+private fun DurationBar(bar: BookDurationBar, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.width(46.dp).clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            bar.durationLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .width(22.dp)
+                .height((BAR_MAX_HEIGHT * bar.fraction).coerceAtLeast(6.dp))
+                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                .background(MaterialTheme.colorScheme.primary),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            bar.shortTitle,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

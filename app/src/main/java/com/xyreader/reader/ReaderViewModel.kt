@@ -740,7 +740,16 @@ class ReaderViewModel(
                 val pages = pendingPages.getAndSet(0)
                 if (ms > 0 || chars > 0 || pages > 0) {
                     try {
-                        statsDao.addDelta(date.toString(), ms, chars, pages)
+                        // 当日累计与分书累计写在同一事务里：分书时长只来自真实计时，
+                        // 不用页数 / 进度 / 总时长比例反推。
+                        statsDao.addReadingDelta(
+                            date = date.toString(),
+                            durationMs = ms,
+                            chars = chars,
+                            pages = pages,
+                            bookId = bookId,
+                            lastReadAt = System.currentTimeMillis(),
+                        )
                     } catch (e: Exception) {
                         readingTimer.restore(ms)
                         pendingChars.addAndGet(chars)

@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import kotlinx.coroutines.launch
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +49,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
+import com.xyreader.core.BookmarkEntity
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +94,7 @@ fun BookDetailScreen(
     onStartFromBeginning: () -> Unit,
     onOpenChapter: (Int) -> Unit,
     onDeleted: () -> Unit,
+    onOpenAtPage: (Int) -> Unit = {},
 ) {
     val viewModel: BookDetailViewModel = viewModel(key = "book_detail_$bookId") {
         // CreationExtras 里取 Application；与 ReaderScreen 同款工厂写法
@@ -104,6 +115,15 @@ fun BookDetailScreen(
     // 分组名用于子页头副标题「格式 · 分组」
     val repo = rememberLibraryRepository()
     val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // 详情页的两个选项卡：详情 / 书签（书签只列这本书的）
+    val bookmarkScope = rememberCoroutineScope()
+    var detailTab by rememberSaveable { mutableStateOf(0) }
+    var pendingBookmarkDelete by remember { mutableStateOf<BookmarkEntity?>(null) }
+    val allBookmarks by repo.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
+    val bookmarks = remember(allBookmarks, bookId) {
+        allBookmarks.filter { it.bookId == bookId }.sortedBy { it.pageIndex }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -134,6 +154,10 @@ fun BookDetailScreen(
                 item("head") {
                     DetailSubpageHead(subtitle = "$formatName · $groupName", onBack = onBack)
                 }
+                item("tabs") {
+                    DetailTabRow(current = detailTab, onSelect = { detailTab = it })
+                }
+                if (detailTab == 0) {
                 item("info") {
                     BookInfoSection(
                         book = current,
@@ -171,7 +195,36 @@ fun BookDetailScreen(
                     BookDetailViewModel.Toc.Failed -> item("toc_failed") { TocCaption("目录读取失败，可直接进入阅读") }
                     BookDetailViewModel.Toc.Hidden -> item("toc_hidden") { TocCaption("远程书籍 · 进入阅读器后查看目录") }
                 }
+                } else {
+                    if (bookmarks.isEmpty()) {
+                        item("bookmarks_empty") { TocCaption("这本书还没有书签，阅读时从阅读器菜单添加") }
+                    } else {
+                        item("bookmarks_count") { TocCaption("${bookmarks.size} 个书签") }
+                        items(bookmarks, key = { "bookmark_${it.id}" }) { bookmark ->
+                            BookmarkCard(
+                                bookmark = bookmark,
+                                onClick = { onOpenAtPage(bookmark.pageIndex) },
+                                onDelete = { pendingBookmarkDelete = bookmark },
+                            )
+                        }
+                    }
+                }
             }
+    }
+
+    pendingBookmarkDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingBookmarkDelete = null },
+            title = { Text("删除这个书签？") },
+            text = { Text("第 ${target.pageIndex + 1} 页的书签将被移除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingBookmarkDelete = null
+                    bookmarkScope.launch { repo.removeBookmark(target.id) }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingBookmarkDelete = null }) { Text("取消") } },
+        )
     }
 
     val target = book
@@ -631,5 +684,85 @@ private fun formatRelative(epochMs: Long): String {
         diff < 48 * 3_600_000L -> "昨天"
         diff < 7 * 24 * 3_600_000L -> "${diff / (24 * 3_600_000)} 天前"
         else -> formatDate(epochMs).substringBefore(' ')
+    }
+}
+
+/** 详情 / 书签 两段式选项卡 */
+@Composable
+private fun DetailTabRow(current: Int, onSelect: (Int) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf("详情", "书签").forEachIndexed { index, label ->
+            val selected = index == current
+            Surface(
+                onClick = { onSelect(index) },
+                modifier = Modifier.weight(1f).height(36.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 一条书签：第 N 页 + 创建时间，点开跳到该页，右侧删除 */
+@Composable
+private fun BookmarkCard(bookmark: BookmarkEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+    val time = remember(bookmark.createdAt) {
+        runCatching {
+            SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(bookmark.createdAt))
+        }.getOrDefault("")
+    }
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.BookmarkBorder,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "第 ${bookmark.pageIndex + 1} 页",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (time.isNotEmpty()) {
+                    Text(
+                        time,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Outlined.DeleteOutline,
+                    contentDescription = "删除这个书签",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

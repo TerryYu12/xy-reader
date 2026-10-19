@@ -272,3 +272,16 @@ fun CapsuleTab(label: String, selected: Boolean, onClick: () -> Unit) {
         )
     }
 }
+
+/**
+ * 进程内书库快照。
+ *
+ * 页面切换会重建 composition，而 `collectAsStateWithLifecycle(initialValue = emptyList())`
+ * 的第一帧必然是空表——表现就是「切到书架先空一下再长出来」。
+ * 这里缓存上一次的列表，让新页面首帧就用旧数据渲染，紧随其后的 Room 流再校正。
+ */
+internal object ShelfSnapshotCache {
+    @Volatile var books: List<com.xyreader.core.BookEntity> = emptyList()
+    @Volatile var groups: List<com.xyreader.core.BookGroupEntity> = emptyList()
+    @Volatile var bookmarks: List<com.xyreader.core.BookmarkEntity> = emptyList()
+}
