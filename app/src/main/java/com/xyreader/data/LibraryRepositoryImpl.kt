@@ -26,7 +26,6 @@ import java.io.FileOutputStream
 import java.io.IOException
 import kotlin.math.max
 import kotlin.math.min
-import org.apache.commons.compress.archivers.zip.ZipFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -325,6 +324,73 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
         id
     }
 
+    /**
+     * 下载完成的书籍入库（见 core.LibraryRepository 契约）。
+     *
+     * 与 [importSharedFile] 的唯一区别是落盘名由调用方给定：下载层按「来源 ID + 条目 ID + 版本 +
+     * 身份哈希」生成唯一名，标题只作为展示名，避免跨来源同名互相覆盖。
+     * 仍然是「先落盘后入库」：先写 `.part` 再改名，半成品不会以正式名出现在导入目录。
+     */
+    override suspend fun importDownloadedFile(
+        sourceFile: File,
+        storedName: String,
+        title: String,
+    ): Long = withContext(Dispatchers.IO) {
+        if (!sourceFile.isFile) throw IOException("下载文件不存在：${sourceFile.name}")
+        val safeName = sanitizeSharedFileName(storedName)
+        val format = BookFormat.fromFileName(safeName)
+        if (format == BookFormat.UNKNOWN) {
+            throw IllegalArgumentException("下载文件的扩展名不受支持：$safeName")
+        }
+        importedDir.mkdirs()
+        val target = File(importedDir, safeName)
+        val part = File(importedDir, "$safeName.part")
+        try {
+            sourceFile.inputStream().use { ins ->
+                FileOutputStream(part).use { out ->
+                    ins.copyTo(out)
+                    out.flush()
+                }
+            }
+            if (part.length() != sourceFile.length()) {
+                throw IOException("复制到书库失败：长度不一致（${part.length()} / ${sourceFile.length()}）")
+            }
+            target.delete()
+            if (!part.renameTo(target)) throw IOException("无法完成入库改名：$safeName")
+        } finally {
+            runCatching { part.delete() }
+        }
+
+        val targetUri = Uri.fromFile(target).toString()
+        dao.getByUri(targetUri)?.let { existing ->
+            // 同一身份重复入库：文件已覆盖更新，记录只刷新标题与大小
+            dao.updateBook(
+                existing.copy(
+                    title = title.ifBlank { existing.title },
+                    size = target.length(),
+                ),
+            )
+            return@withContext existing.id
+        }
+
+        val id = dao.insertBook(
+            BookEntity(
+                title = title.ifBlank { safeName.substringBeforeLast('.') },
+                uri = targetUri,
+                format = format.name,
+                size = target.length(),
+                addedAt = System.currentTimeMillis(),
+            ),
+        )
+        if (id > 0) {
+            // 补页数与封面；失败不阻断入库（与导入/扫描管线同一策略）
+            runCatching {
+                dao.getById(id)?.let { saved -> scanner.buildCoverAndMetadata(saved) }
+            }
+        }
+        id
+    }
+
     /** 文件名清洗：去掉路径分隔符等非法字符，保留中文；超长截断时保留扩展名 */
     private fun sanitizeSharedFileName(name: String): String {
         val cleaned = name
@@ -366,33 +432,7 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
      * 覆盖：%PDF→pdf；PK→epub（mimetype 条目）/zip；Rar!→rar；7z 魔数→7z；
      * PDB/BOOKMOBI→mobi；前 1KB 无 NUL 字节→txt。
      */
-    private fun sniffBookExtension(file: File): String? {
-        val head = ByteArray(1024)
-        val len = file.inputStream().use { it.read(head) }
-        if (len <= 0) return null
-        fun byteAt(i: Int) = if (i < len) head[i].toInt() and 0xFF else -1
-        return when {
-            len >= 4 && byteAt(0) == 0x25 && byteAt(1) == 0x50 &&
-                byteAt(2) == 0x44 && byteAt(3) == 0x46 -> "pdf" // %PDF
-            len >= 4 && byteAt(0) == 0x50 && byteAt(1) == 0x4B ->
-                if (zipLooksLikeEpub(file)) "epub" else "zip" // PK\x03\x04
-            byteAt(0) == 0x52 && byteAt(1) == 0x61 &&
-                byteAt(2) == 0x72 && byteAt(3) == 0x21 -> "rar" // Rar!
-            len >= 4 && byteAt(0) == 0x37 && byteAt(1) == 0x7A &&
-                byteAt(2) == 0xBC && byteAt(3) == 0xAF -> "7z"
-            len >= 68 && String(head, 60, 8, Charsets.US_ASCII) in setOf("BOOKMOBI", "TEXtREAd") -> "mobi"
-            (0 until len).none { head[it] == 0.toByte() } -> "txt"
-            else -> null
-        }
-    }
-
-    /** zip 家族判定：含 mimetype 条目（EPUB 规范首条目）→ epub；读取失败按普通 zip 处理 */
-    private fun zipLooksLikeEpub(file: File): Boolean = runCatching {
-        ZipFile(file).use { zip ->
-            zip.getEntry("mimetype") != null ||
-                zip.entries.asSequence().take(5).any { it.name == "mimetype" }
-        }
-    }.getOrDefault(false)
+    private fun sniffBookExtension(file: File): String? = BookContentSniffer.sniffExtension(file)
 
     override suspend fun ensureCover(book: BookEntity): String? = withContext(Dispatchers.IO) {
         val cached = book.coverPath
@@ -441,6 +481,25 @@ class LibraryRepositoryImpl(context: Context) : LibraryRepository {
             }
             coverPath?.let { path -> runCatching { File(path).delete() } }
         }
+    }
+
+    override suspend fun deleteBookAndFile(bookId: Long): Boolean = withContext(Dispatchers.IO) {
+        val book = dao.getById(bookId) ?: return@withContext false
+        val uri = book.uri
+        val deleted: Boolean? = when {
+            uri.startsWith("file://") -> runCatching {
+                val path = Uri.parse(uri).path ?: return@runCatching false
+                val file = File(path)
+                if (file.isDirectory) file.deleteRecursively() else file.delete()
+            }.getOrDefault(false)
+            uri.startsWith("content://") -> runCatching {
+                androidx.documentfile.provider.DocumentFile.fromSingleUri(appContext, Uri.parse(uri))?.delete() ?: false
+            }.getOrDefault(false)
+            else -> null // 远程书没有本地文件
+        }
+        if (deleted != true) return@withContext false
+        deleteBook(bookId)
+        true
     }
 
     /**

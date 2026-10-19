@@ -20,7 +20,7 @@ private val Context.themeModeDataStore by preferencesDataStore(name = "theme_mod
 /** 存 ThemeMode.name；缺失或非法值回退跟随系统 */
 private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
 
-/** 存 ThemeAccent.name；缺失或非法值回退默认蓝紫 */
+/** 存 ThemeAccent.name；缺失或非法值回退默认玫红 */
 private val KEY_ACCENT = stringPreferencesKey("accent_color")
 
 /**
@@ -44,10 +44,10 @@ class ThemePrefsStore(context: Context) {
         dataStore.edit { prefs -> prefs[KEY_THEME_MODE] = mode.name }
     }
 
-    /** 当前强调色；未写入过或值非法时回退 [ThemeAccent.LAVENDER] */
+    /** 当前强调色；未写入过或值非法时回退 [ThemeAccent.ROSE] */
     val accent: Flow<ThemeAccent> = dataStore.data.map { prefs ->
         val raw = prefs[KEY_ACCENT]
-        raw?.let { runCatching { ThemeAccent.valueOf(it) }.getOrNull() } ?: ThemeAccent.LAVENDER
+        raw?.let { runCatching { ThemeAccent.valueOf(it) }.getOrNull() } ?: ThemeAccent.ROSE
     }
 
     /** 写入强调色 */

@@ -26,12 +26,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.ViewModule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +42,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,11 +68,6 @@ import com.xyreader.core.LibraryRepository
 import com.xyreader.core.QuickRead
 import com.xyreader.core.ShelfSection
 import com.xyreader.core.SortOption
-import com.xyreader.data.ArkDatabase
-import com.xyreader.data.LibraryLayout
-import com.xyreader.data.LibraryLayoutStore
-import com.xyreader.stats.computeReadingStats
-import java.time.LocalDate
 import kotlinx.coroutines.launch
 
 /**
@@ -85,7 +79,7 @@ fun ShelfScreen(
     onOpenBook: (Long) -> Unit,
     onOpenSection: (ShelfSection) -> Unit,
     onOpenBookmarks: () -> Unit,
-    onOpenStats: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onOpenStats: () -> Unit,
     onOpenGroup: (Long) -> Unit,
     onOpenGroupManage: () -> Unit,
     onOpenReader: (Long) -> Unit,
@@ -93,23 +87,19 @@ fun ShelfScreen(
     val repo = rememberLibraryRepository()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val context = LocalContext.current
-    val layoutStore = remember(context) { LibraryLayoutStore(context) }
-    val layout by layoutStore.layout.collectAsStateWithLifecycle(initialValue = LibraryLayout())
     val scan = rememberRepoScanHandle(repo) { report ->
         scope.launch { snackbar.showSnackbar("新增 ${report.added} 本") }
     }
 
     // 真实数据源：全部书籍 / 书签 / 自定义分组
-    val allBooks by repo.books.collectAsStateWithLifecycle(initialValue = emptyList())
-    val bookmarks by repo.bookmarks.collectAsStateWithLifecycle(initialValue = emptyList())
-    val groups by repo.groups.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    // 阅读统计入口的副标题：当前连续打卡天数（来自每日阅读记录）
-    val dailyFlow = remember(context) { ArkDatabase.getInstance(context).readingStatsDao().observeAll() }
-    val dailyRecords by dailyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val currentStreak = remember(dailyRecords) {
-        computeReadingStats(dailyRecords, LocalDate.now()).currentStreak
+    // 首帧用进程内快照，避免切页时「先空一下再长出来」
+    val allBooks by repo.books.collectAsStateWithLifecycle(initialValue = ShelfSnapshotCache.books)
+    val bookmarks by repo.bookmarks.collectAsStateWithLifecycle(initialValue = ShelfSnapshotCache.bookmarks)
+    val groups by repo.groups.collectAsStateWithLifecycle(initialValue = ShelfSnapshotCache.groups)
+    LaunchedEffect(allBooks, bookmarks, groups) {
+        ShelfSnapshotCache.books = allBooks
+        ShelfSnapshotCache.bookmarks = bookmarks
+        ShelfSnapshotCache.groups = groups
     }
 
     // 计数（真实数据；历史 = 有过阅读记录的书）
@@ -159,143 +149,82 @@ fun ShelfScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { ShelfPageHead(scan) }
+                // 页头：只保留「YOUR COLLECTION / 书架」（小字与「添加仓库」已删）
                 item {
-                    ShelfSummaryRow(
-                        total = allBooks.size,
-                        reading = readingCount,
-                        favorite = favoriteCount,
-                    )
-                }
-                item { ShelfStatsEntry(currentStreak = currentStreak, onClick = onOpenStats) }
-                item {
-                    ShelfViewModeSwitch(
-                        cabinetSelected = layout.shelfCabinetView,
-                        onSelectCabinet = {
-                            scope.launch { layoutStore.setShelfCabinetView(true) }
-                        },
-                        onSelectGrid = {
-                            scope.launch { layoutStore.setShelfCabinetView(false) }
-                        },
-                    )
-                }
-
-                if (layout.shelfCabinetView) {
-                    item {
-                        BookshelfCabinet(
-                            books = allBooks,
-                            groups = groups,
-                            onOpenBook = onOpenBook,
-                            onCreateGroup = onCreateGroup,
-                            onRenameGroup = onRenameGroup,
-                            onOpenGroupManage = onOpenGroupManage,
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                        Text(
+                            "YOUR COLLECTION",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.4.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "书架",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                } else {
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            ShelfSectionHead(
-                                title = "我的书架",
-                                subtitle = "按内容类型快速打开。",
-                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                ShelfEntryCard(
-                                    modifier = Modifier.weight(1f),
-                                    icon = Icons.Outlined.FolderOpen,
-                                    title = "全部",
-                                    count = allBooks.size,
-                                    countSuffix = "项",
-                                    onClick = { onOpenSection(ShelfSection.ALL) },
-                                )
-                                ShelfEntryCard(
-                                    modifier = Modifier.weight(1f),
-                                    icon = Icons.Outlined.FavoriteBorder,
-                                    title = "收藏",
-                                    count = favoriteCount,
-                                    countSuffix = "项",
-                                    iconTint = MaterialTheme.colorScheme.tertiary,
-                                    onClick = { onOpenSection(ShelfSection.FAVORITE) },
-                                )
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                ShelfEntryCard(
-                                    modifier = Modifier.weight(1f),
-                                    icon = Icons.Outlined.History,
-                                    title = "历史",
-                                    count = readingCount,
-                                    countSuffix = "项",
-                                    iconTint = accentColor(AccentColor.GREEN),
-                                    onClick = { onOpenSection(ShelfSection.HISTORY) },
-                                )
-                                ShelfEntryCard(
-                                    modifier = Modifier.weight(1f),
-                                    icon = Icons.Outlined.Bookmarks,
-                                    title = "书签",
-                                    count = bookmarks.size,
-                                    countSuffix = "项",
-                                    iconTint = accentColor(AccentColor.GOLD),
-                                    onClick = onOpenBookmarks,
-                                )
-                            }
-                        }
+                }
+                // 四个入口：单行小卡片（全部 / 收藏 / 历史 / 书签）
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ShelfEntryChip(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.FolderOpen,
+                            label = "全部",
+                            count = allBooks.size,
+                            onClick = { onOpenSection(ShelfSection.ALL) },
+                        )
+                        ShelfEntryChip(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.FavoriteBorder,
+                            label = "收藏",
+                            count = favoriteCount,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            onClick = { onOpenSection(ShelfSection.FAVORITE) },
+                        )
+                        ShelfEntryChip(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.History,
+                            label = "历史",
+                            count = readingCount,
+                            tint = accentColor(AccentColor.GREEN),
+                            onClick = { onOpenSection(ShelfSection.HISTORY) },
+                        )
+                        ShelfEntryChip(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.Bookmarks,
+                            label = "书签",
+                            count = bookmarks.size,
+                            tint = accentColor(AccentColor.GOLD),
+                            onClick = onOpenBookmarks,
+                        )
                     }
-
-                    if (groups.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                                ShelfSectionHead(
-                                    title = "分组",
-                                    subtitle = "自定义整理方式",
-                                    action = "管理",
-                                    onAction = onOpenGroupManage,
-                                    modifier = Modifier.padding(top = 10.dp),
-                                )
-                                ShelfGroupPills(
-                                    groups = groups,
-                                    countOf = { group -> allBooks.count { it.groupId == group.id } },
-                                    onOpenGroup = onOpenGroup,
-                                    onOpenGroupManage = onOpenGroupManage,
-                                )
-                            }
-                        }
+                }
+                // 木质书柜（唯一主体）：右上角「分组管理」（新建分组已合并进去）
+                item {
+                    // 书柜是这一页最重的一块（嵌套 LazyRow + 封面解码），推迟一帧，避免切页超长帧
+                    var cabinetReady by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        withFrameNanos { }
+                        cabinetReady = true
                     }
-
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ShelfSectionHead(
-                                title = "最近阅读",
-                                subtitle = "继续上一次打开的书。",
-                                action = "继续阅读".takeIf { recentBooks.isNotEmpty() },
-                                onAction = { recentBooks.firstOrNull()?.let { onOpenReader(it.id) } },
-                                modifier = Modifier.padding(top = 10.dp),
-                            )
-                            if (recentBooks.isEmpty()) {
-                                Text(
-                                    "还没有阅读记录。",
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center,
-                                )
-                            } else {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    recentBooks.forEach { book ->
-                                        BookCard(
-                                            book = book,
-                                            groups = groups,
-                                            onOpenBook = onOpenBook,
-                                            onToggleFavorite = onToggleFavorite,
-                                            onDeleteBook = onDeleteBook,
-                                            onMoveToGroup = { groupId -> onMoveToGroup(book, groupId) },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    }
-                                    repeat(3 - recentBooks.size) { Spacer(Modifier.weight(1f)) }
-                                }
-                            }
-                        }
-                    }
+                    if (!cabinetReady) {
+                        Spacer(Modifier.height(320.dp))
+                    } else BookshelfCabinet(
+                        books = allBooks,
+                        groups = groups,
+                        onOpenBook = onOpenBook,
+                        onCreateGroup = onCreateGroup,
+                        onRenameGroup = onRenameGroup,
+                        onOpenGroupManage = onOpenGroupManage,
+                    )
                 }
             }
 
@@ -304,88 +233,6 @@ fun ShelfScreen(
                 onToggle = { readMenuOpen = !readMenuOpen },
                 onDismiss = { readMenuOpen = false },
                 onPick = onQuickRead,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ShelfViewModeSwitch(
-    cabinetSelected: Boolean,
-    onSelectCabinet: () -> Unit,
-    onSelectGrid: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
-        Text(
-            "浏览方式",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            "布局方案 · 木柜陈列或网格书架",
-            modifier = Modifier.padding(top = 3.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 9.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(13.dp))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            ShelfViewModeOption(
-                label = "书柜",
-                icon = Icons.Outlined.Bookmarks,
-                selected = cabinetSelected,
-                modifier = Modifier.weight(1f),
-                testTag = "shelf-mode-cabinet",
-                onClick = onSelectCabinet,
-            )
-            ShelfViewModeOption(
-                label = "网格",
-                icon = Icons.Outlined.ViewModule,
-                selected = !cabinetSelected,
-                modifier = Modifier.weight(1f),
-                testTag = "shelf-mode-grid",
-                onClick = onSelectGrid,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ShelfViewModeOption(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    testTag: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 40.dp).testTag(testTag),
-        shape = RoundedCornerShape(9.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
             )
         }
     }
@@ -455,59 +302,6 @@ private fun ShelfSummaryRow(total: Int, reading: Int, favorite: Int) {
         SummaryCard("书库", total, Modifier.weight(1f))
         SummaryCard("正在读", reading, Modifier.weight(1f))
         SummaryCard("收藏", favorite, Modifier.weight(1f))
-    }
-}
-
-/** 阅读统计入口：横向卡片，副标题显示当前连续打卡天数；书柜 / 网格两种视图都可见。 */
-@Composable
-private fun ShelfStatsEntry(currentStreak: Int, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(21.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(39.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.DateRange,
-                    contentDescription = null,
-                    modifier = Modifier.size(21.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "阅读统计",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    if (currentStreak > 0) "已连续打卡 $currentStreak 天" else "每天读满 5 分钟自动打卡",
-                    modifier = Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }
 
@@ -979,6 +773,42 @@ private fun BookmarkRow(
             HorizontalDivider(
                 modifier = Modifier.padding(start = 15.dp),
                 color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+    }
+}
+
+/** 书架顶部入口小卡片：图标 + 名称 + 数量，单行四等分 */
+@Composable
+private fun ShelfEntryChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
+                Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
             )
         }
     }

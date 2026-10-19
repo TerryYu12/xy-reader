@@ -8,6 +8,14 @@
     <!-- 内置更新器：允许应用请求「安装未知应用」权限，并在授权后调起系统安装器安装下载的 APK -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- 书源「整本抓取」前台服务：一本长篇要抓几分钟，退到后台不能被系统回收。
+         依据：targetSdk 34（compileSdk 36）。Android 14 起前台服务必须声明类型并配套类型权限；
+         本服务用 dataSync（整本抓取＝一次可能持续数分钟的数据同步，非「短任务」）。
+         POST_NOTIFICATIONS（Android 13+）是运行时权限：被拒时服务照常跑，只是不显示通知。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- 允许明文 HTTP（usesCleartextTraffic）：兼容自建服务器（Alist、局域网 WebDAV 等默认 http）。
          公网服务（坚果云 / Google Drive）本身走 HTTPS，不受此开关影响。 -->
     <application
@@ -219,5 +227,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- 书源「整本抓取」前台服务：抓整本 + 入库，常驻通知显示进度、可取消。
+             exported=false：只由本应用触发；foregroundServiceType=dataSync 与上面的权限配套。 -->
+        <service
+            android:name=".booksource.BookFetchService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

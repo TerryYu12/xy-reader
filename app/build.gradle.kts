@@ -16,7 +16,7 @@ val keystoreProperties = Properties().apply {
 }
 
 /** 应用发布版本号：defaultConfig 与交付命名脚本（XY-READER-<版本>.apk）共用这一处 */
-val appVersionName = "0.5.9"
+val appVersionName = "0.6.0"
 
 android {
     namespace = "com.xyreader"
@@ -26,7 +26,7 @@ android {
         applicationId = "com.xyreader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 33
+        versionCode = 34
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -83,6 +83,13 @@ android {
     }
 }
 
+// 可选外部源：构建里包含 :optional-source 时编入（见 settings.gradle.kts），否则完全不参与
+if (findProject(":optional-source") != null) {
+    dependencies {
+        implementation(project(":optional-source"))
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
@@ -113,6 +120,13 @@ dependencies {
 
     // WebDAV 远程仓库：HTTP 客户端（PROPFIND 列目录 / Range 流式读取）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // 书源规则求值：HTML/CSS 解析（Legado 兼容引擎的默认选择器语法与 @css: 都依赖它）
+    implementation("org.jsoup:jsoup:1.23.2")
+
+    // 书源 JS 规则沙箱（Legado 兼容）：1.7.15 是 1.7.x 末版、Java 8 字节码，Android 上久经验证；
+    // 1.9.x 要求 Java 11+ 字节码，D8 脱糖风险大，暂不采用
+    implementation("org.mozilla:rhino:1.7.15")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

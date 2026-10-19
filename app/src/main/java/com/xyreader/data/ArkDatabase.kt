@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.xyreader.core.BookEntity
 import com.xyreader.core.BookGroupEntity
 import com.xyreader.core.BookmarkEntity
+import com.xyreader.core.BookReadingEntity
 import com.xyreader.core.DailyReadingEntity
 import com.xyreader.core.GoogleDriveAccountEntity
 import com.xyreader.core.LocalRepoEntity
@@ -24,8 +25,9 @@ import com.xyreader.core.WebDavConfigEntity
         GoogleDriveAccountEntity::class,
         LocalRepoEntity::class,
         DailyReadingEntity::class,
+        BookReadingEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class ArkDatabase : RoomDatabase() {
@@ -168,9 +170,27 @@ abstract class ArkDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 → v9：新增「按书累计阅读时长」表 book_reading。
+         *
+         * 只新增表，不改动 daily_reading 与其他已有表：旧版本数据原样保留，
+         * 升级后从下一次阅读计时开始积累分书时长，历史缺失部分不做反推。
+         * 列名 / 类型 / 非空与 core.BookReadingEntity 严格一致（整数主键不自增）。
+         */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS book_reading (" +
+                        "bookId INTEGER NOT NULL, " +
+                        "durationMs INTEGER NOT NULL, " +
+                        "lastReadAt INTEGER NOT NULL, " +
+                        "PRIMARY KEY(bookId))",
+                )
+            }
+        }
+
         @Volatile
         private var instance: ArkDatabase? = null
-
         /** 全局单例（双检锁），其他层统一从这里取数据库 */
         fun getInstance(context: Context): ArkDatabase =
             instance ?: synchronized(this) {
@@ -187,6 +207,7 @@ abstract class ArkDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
                     .build()
                     .also { instance = it }

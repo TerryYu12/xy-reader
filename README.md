@@ -171,6 +171,10 @@
 - [KOReader](https://github.com/koreader/koreader)
 - [Librera Reader](https://github.com/librera/LibreraReader)
 
+## 交流
+
+- QQ 群：**1042819678**（也可在应用「设置 → 支持作者」页点击群号复制）
+
 ## 免责声明
 
 1. 本软件是一款**纯粹的本地 / 私人存储阅读工具**，不提供、不内置、不托管任何书源、漫画或小说内容；

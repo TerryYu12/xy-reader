@@ -100,12 +100,15 @@ class CoverFrameBorderTest {
                     stats = statsWithLongest(7),
                     cells = emptyList(),
                     today = LocalDate.of(2026, 10, 8),
+                    bars = emptyList(),
                     selectedFrame = null,
                     onSelectFrame = { picked += it },
                     onBack = {},
                 )
             }
         }
+        // 规范 §6.1：封面边框在「成就」标签下
+        compose.onNodeWithText("成就").performClick()
         compose.onNodeWithText("银边框").performClick()
         // 连续 30 天才解锁金边框：点击无效
         compose.onNodeWithText("金边框").performClick()

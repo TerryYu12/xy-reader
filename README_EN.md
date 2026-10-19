@@ -180,6 +180,10 @@ Parts of this project's design (chapter pagination, reader interaction behavior,
 4. This software is provided "AS IS", without warranty of any kind, express or implied. The author is not liable for any data loss or other damages caused by the use of this software;
 5. If you enjoy a work, please support the official release.
 
+## Community
+
+- QQ group: **1042819678** (also tappable to copy on the in-app Support page)
+
 ## License
 
 [MIT License](LICENSE)

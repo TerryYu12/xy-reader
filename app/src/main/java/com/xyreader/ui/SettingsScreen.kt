@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Label
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Tune
@@ -81,9 +82,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenRepos: () -> Unit,
-    onOpenRemoteRepos: () -> Unit,
-    onOpenGdrive: () -> Unit,
     onOpenGroups: () -> Unit,
     onOpenReaderConfig: () -> Unit,
     onOpenPrivacy: () -> Unit,
@@ -142,36 +140,6 @@ fun SettingsScreen(
                 )
             }
 
-            GroupLabel("仓库管理")
-            SettingsCard {
-                SettingRow(
-                    icon = Icons.Outlined.FolderOpen,
-                    title = "本地仓库管理",
-                    subtitle = "添加本机文件夹并扫描书籍",
-                    iconTint = MaterialTheme.colorScheme.primary,
-                    showChevron = true,
-                    onClick = onOpenRepos,
-                )
-                RowDivider()
-                SettingRow(
-                    icon = Icons.Outlined.Cloud,
-                    title = "远程仓库管理",
-                    subtitle = "WebDAV · ZIP / 7Z / TAR / RAR / PDF 流式阅读",
-                    iconTint = accentColor(AccentColor.GREEN),
-                    tailBeta = true,
-                    onClick = onOpenRemoteRepos,
-                )
-                RowDivider()
-                SettingRow(
-                    icon = Icons.Outlined.Cloud,
-                    title = "Google Drive",
-                    subtitle = "OAuth 授权与云端扫描",
-                    iconTint = MaterialTheme.colorScheme.tertiary,
-                    tailBeta = true,
-                    onClick = onOpenGdrive,
-                )
-            }
-
             GroupLabel("漫画管理")
             SettingsCard {
                 SettingRow(
@@ -181,14 +149,6 @@ fun SettingsScreen(
                     iconTint = accentColor(AccentColor.PURPLE),
                     showChevron = true,
                     onClick = onOpenGroups,
-                )
-                RowDivider()
-                SettingRow(
-                    icon = Icons.Outlined.Label,
-                    title = "标签管理",
-                    subtitle = "开发中",
-                    iconTint = accentColor(AccentColor.GOLD),
-                    onClick = { scope.launch { snackbar.showSnackbar("标签管理开发中") } },
                 )
                 RowDivider()
                 SettingRow(
@@ -376,7 +336,7 @@ private fun GroupLabel(text: String) {
     )
 }
 
-/** 圆角分组卡片（对应设计 .settings-card）：19dp 大圆角 + 1dp 描边 + surface 底 */
+/** 圆角分组卡片（对应设计 .settings-card）：19dp 大圆角 + 1dp 描边 + surface 底 + 轻微投影让其浮在浅灰背景上 */
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {
     Surface(
@@ -389,6 +349,7 @@ private fun SettingsCard(content: @Composable () -> Unit) {
             ),
         shape = RoundedCornerShape(19.dp),
         color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
     ) {
         Column(content = { content() })
     }

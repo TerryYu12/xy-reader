@@ -43,6 +43,15 @@ interface LibraryRepository {
      */
     suspend fun importSharedFile(uriString: String, nameHint: String?, mimeType: String?): Long
 
+    /**
+     * 下载完成的书籍入库：源文件已在来源无关的下载暂存目录，这里按 [storedName]
+     * （下载层用「来源 ID + 条目 ID + 版本 + 身份哈希」生成的唯一名）复制进私有导入目录并写库。
+     * 不按标题推导文件名——两个来源的同名书会互相覆盖。
+     * 同一 [storedName] 重复调用是幂等的（覆盖文件、复用原记录）。
+     * @return 书籍 id
+     */
+    suspend fun importDownloadedFile(sourceFile: java.io.File, storedName: String, title: String): Long
+
     /** 生成封面（若已有缓存直接返回路径） */
     suspend fun ensureCover(book: BookEntity): String?
 
@@ -55,6 +64,16 @@ interface LibraryRepository {
     suspend fun setFavorite(bookIds: Collection<Long>, favorite: Boolean)
 
     suspend fun deleteBook(bookId: Long)
+
+    /**
+     * 删除本地文件（夹）并移除书架记录。
+     *
+     * 只对本地书有效（`file://` 私有导入副本/扫描目录里的文件、`content://` SAF 文档）；
+     * 远程书（webdav://、gdrive://）返回 false —— 没有本地文件可删。
+     * 文件删除成功后才删记录，避免出现"记录没了、文件还在"更难收拾的状态。
+     * @return 是否真的删掉了本地文件
+     */
+    suspend fun deleteBookAndFile(bookId: Long): Boolean
 
     /** 批量删除书籍：移除库记录、书签与封面缓存，不动原文件；不存在的 id 直接忽略。空集合什么也不做 */
     suspend fun deleteBooks(bookIds: Collection<Long>)

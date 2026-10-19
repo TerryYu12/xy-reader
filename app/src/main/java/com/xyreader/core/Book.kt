@@ -50,6 +50,22 @@ data class LocalRepoEntity(
     val mergeFolderPdfs: Boolean = true,
 )
 
+/**
+ * 按书籍累计的阅读时长（本机私有，不上传）。
+ *
+ * 主键是书籍稳定 ID：[BookEntity.id] 在重命名 / 移动分组 / 换封面时都不变，
+ * 因此这些操作不会生成新的一行。只有真正计时到的时长才写入，
+ * 历史数据缺失时宁可不写，也不按页数 / 进度反推伪造。
+ */
+@Entity(tableName = "book_reading")
+data class BookReadingEntity(
+    @PrimaryKey val bookId: Long,
+    /** 这本书累计阅读时长（毫秒） */
+    val durationMs: Long = 0,
+    /** 最后一次计入时长的时刻（epoch ms），仅用于排序与排查 */
+    val lastReadAt: Long = 0,
+)
+
 /** 自定义书架分组（一本书最多归属一个分组） */
 @Entity(tableName = "book_groups")
 data class BookGroupEntity(

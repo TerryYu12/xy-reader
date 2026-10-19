@@ -54,7 +54,7 @@ enum class ThemeAccent(
     ROSE(
         "玫红",
         0xFFF6A9C5, 0xFF4A1030, 0xFF7A3054, 0xFFFFD9E7,
-        0xFFB0326A, 0xFFFFFFFF, 0xFFFFD8E6, 0xFF3E0022,
+        0xFFFF4F8B, 0xFFFFFFFF, 0xFFFFE8F1, 0xFFFF4F8B,
     ),
     VIOLET(
         "紫罗兰",
@@ -76,8 +76,8 @@ enum class ThemeAccent(
     fun onContainer(dark: Boolean): Color = Color((if (dark) darkOnContainer else lightOnContainer).toInt())
 }
 
-/** 当前选中的强调色（设置里修改）；默认蓝紫，与旧版主色一致 */
-val LocalThemeAccent = staticCompositionLocalOf { ThemeAccent.LAVENDER }
+/** 当前选中的强调色（设置里修改）；默认玫红，与日间主题主色一致 */
+val LocalThemeAccent = staticCompositionLocalOf { ThemeAccent.ROSE }
 
 /** 请求切换强调色（内部异步写 DataStore 并驱动重组） */
 val LocalSetThemeAccent = staticCompositionLocalOf<(ThemeAccent) -> Unit> { {} }

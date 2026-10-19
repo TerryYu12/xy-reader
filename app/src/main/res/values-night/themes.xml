@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ArkReader" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- 与 Compose 主题的夜间背景一致：避免切页/重绘时露出纯黑底造成"闪屏" -->
+        <item name="android:windowBackground">#FF121215</item>
     </style>
 </resources>

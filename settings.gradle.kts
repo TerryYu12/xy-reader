@@ -37,3 +37,23 @@ dependencyResolutionManagement {
 }
 rootProject.name = "XY-READER"
 include(":app")
+
+// —— 可选外部源模块 ——
+// 主仓不含任何具体来源实现；若 local.properties 里配了 optionalSourcesDir（本机路径，不入库），
+// 且该目录是个 Gradle 模块，就把它编进构建；未配置时主仓照常构建。
+val optionalProps = java.util.Properties().apply {
+    val file = java.io.File(settingsDir, "local.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+val optionalSourcesDir = optionalProps.getProperty("optionalSourcesDir")
+    ?: System.getenv("XY_OPTIONAL_SOURCES_DIR")
+if (!optionalSourcesDir.isNullOrBlank()) {
+    val moduleDir = java.io.File(optionalSourcesDir)
+    if (java.io.File(moduleDir, "build.gradle.kts").isFile) {
+        include(":optional-source")
+        project(":optional-source").projectDir = moduleDir
+        println("[XY-READER] 可选外部源模块已编入：$moduleDir")
+    } else {
+        println("[XY-READER] optionalSourcesDir 指向的目录不是 Gradle 模块，已忽略：$moduleDir")
+    }
+}
