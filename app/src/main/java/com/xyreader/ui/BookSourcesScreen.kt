@@ -1,5 +1,7 @@
 package com.xyreader.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xyreader.booksource.BookSourceImporter
+import com.xyreader.booksource.ImportResult
 import com.xyreader.booksource.LegadoBookSource
 import com.xyreader.booksource.LegadoSourceStore
 import kotlinx.coroutines.launch
@@ -134,18 +139,12 @@ fun BookSourcesScreen(onBack: () -> Unit, onOpenSearch: () -> Unit) {
 
     if (showImport) {
         ImportSourceDialog(
+            store = store,
             onDismiss = { showImport = false },
-            onImport = { text ->
-                val parsed = LegadoBookSource.parseImport(text)
-                if (parsed.isEmpty()) {
-                    "没有解析到有效的书源（需要 Legado 格式的 JSON）"
-                } else {
-                    scope.launch {
-                        val added = store.import(parsed)
-                        showImport = false
-                        snackbar.showSnackbar("导入完成：新增 $added 条，共处理 ${parsed.size} 条")
-                    }
-                    null
+            onSuccess = { count, added ->
+                showImport = false
+                scope.launch {
+                    snackbar.showSnackbar("导入完成：新增 $added 条，共处理 $count 条")
                 }
             },
         )
@@ -241,15 +240,44 @@ private fun SourceCard(
     }
 }
 
-/** 导入弹层：粘贴 JSON（可从剪贴板一键取），解析失败留在弹层里提示、不关窗 */
+/** 导入弹层：支持粘贴 JSON、输入 URL 抓取、或选择本地 .json 文件 */
 @Composable
-private fun ImportSourceDialog(onDismiss: () -> Unit, onImport: (String) -> String?) {
+private fun ImportSourceDialog(
+    store: LegadoSourceStore,
+    onDismiss: () -> Unit,
+    onSuccess: (count: Int, added: Int) -> Unit,
+) {
+    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val importer = remember(store) { BookSourceImporter(store) }
+
     var text by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var loadingMessage by remember { mutableStateOf("") }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            isLoading = true
+            loadingMessage = "正在读取文件..."
+            error = null
+            scope.launch {
+                when (val result = importer.importFromUri(context, uri)) {
+                    is ImportResult.Success -> onSuccess(result.sources.size, result.addedCount)
+                    is ImportResult.Failure -> {
+                        error = result.message
+                        isLoading = false
+                    }
+                }
+            }
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isLoading) onDismiss() },
         title = { Text("导入书源") },
         text = {
             Column {
@@ -259,25 +287,83 @@ private fun ImportSourceDialog(onDismiss: () -> Unit, onImport: (String) -> Stri
                         text = it
                         error = null
                     },
-                    label = { Text("粘贴 Legado 书源 JSON（数组或单条）") },
-                    minLines = 6,
-                    maxLines = 10,
+                    label = { Text("粘贴 JSON 规则或输入 URL 链接") },
+                    placeholder = { Text("可贴 JSON 规则，或输入 http(s):// 书源链接") },
+                    minLines = 4,
+                    maxLines = 8,
+                    enabled = !isLoading,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (isLoading) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(
+                            loadingMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 if (error != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(error!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Spacer(Modifier.height(6.dp))
-                TextButton(onClick = { clipboard.getText()?.text?.takeIf { it.isNotBlank() }?.let { text = it } }) {
-                    Text("从剪贴板粘贴")
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            clipboard.getText()?.text?.takeIf { it.isNotBlank() }?.let {
+                                text = it
+                                error = null
+                            }
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("从剪贴板粘贴", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            error = null
+                            filePicker.launch(arrayOf("application/json", "text/*", "*/*"))
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("选择本地文件", maxLines = 1)
+                    }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { error = onImport(text) }) { Text("导入") }
+            TextButton(
+                enabled = !isLoading && text.isNotBlank(),
+                onClick = {
+                    isLoading = true
+                    loadingMessage = if (BookSourceImporter.isUrl(text)) "正在网络抓取并解析..." else "正在解析并导入..."
+                    error = null
+                    scope.launch {
+                        when (val result = importer.importFromText(text)) {
+                            is ImportResult.Success -> onSuccess(result.sources.size, result.addedCount)
+                            is ImportResult.Failure -> {
+                                error = result.message
+                                isLoading = false
+                            }
+                        }
+                    }
+                },
+            ) { Text("导入") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = {
+            TextButton(enabled = !isLoading, onClick = onDismiss) { Text("取消") }
+        },
     )
 }
 
