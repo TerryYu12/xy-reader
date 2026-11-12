@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -17,6 +18,7 @@ import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -239,5 +241,41 @@ class BookSourceSearchScreenTest {
         }
         // 验证重新请求，结果更新为结果版本 2
         compose.onNodeWithText("结果版本 2").assertIsDisplayed()
+    }
+
+    @Test
+    fun sourcesWithBooksArePinnedToTopAboveEmptySources() {
+        val srcEmpty = testSource("空源甲", "https://empty.example.com")
+        val srcHit = testSource("命中源乙", "https://hit.example.com")
+        // 空源甲先入库排在前面
+        runBlocking { store.import(listOf(srcEmpty, srcHit)) }
+
+        val htmlHit = """
+            <html><body><ul class="result">
+              <li class="row"><a class="title" href="/book/99">搜到的书一</a><span class="author">作者乙</span></li>
+            </ul></body></html>
+        """.trimIndent()
+        val fetcher = FakeFetcher(mapOf("empty.example.com" to "<html><body></body></html>", "hit.example.com" to htmlHit))
+        val service = LegadoSearchService(fetcher = fetcher)
+
+        compose.setContent { BookSourceSearchScreen(onBack = {}, searchService = service) }
+
+        compose.onNodeWithText("书名 / 作者").performTextInput("搜到的书")
+        compose.onNodeWithText("搜索").performClick()
+
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText("搜到的书一").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 验证搜到的书展示在下方
+        compose.onNodeWithText("命中源乙").assertIsDisplayed()
+        compose.onNodeWithText("搜到的书一").assertIsDisplayed()
+        compose.onNodeWithText("未搜到结果的书源 (1)").assertIsDisplayed()
+        compose.onNodeWithText("空源甲").assertIsDisplayed()
+
+        // 关键断言：搜到结果的源乙置顶，其纵向坐标小于未搜到结果的空源甲（排在上方）
+        val hitTop = compose.onNodeWithText("命中源乙").getUnclippedBoundsInRoot().top
+        val emptyTop = compose.onNodeWithText("空源甲").getUnclippedBoundsInRoot().top
+        assertTrue("搜到的源应置顶显示在未搜到结果的源上方 (hit=$hitTop, empty=$emptyTop)", hitTop < emptyTop)
     }
 }

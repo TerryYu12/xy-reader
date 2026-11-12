@@ -422,6 +422,19 @@ fun BookSourceSearchScreen(
 
             Spacer(Modifier.height(6.dp))
 
+            // 搜索结果：搜到书籍的源置顶排在最前，未搜到或失败的源沉底排在下方
+            val (matchedResults, emptyResults) = remember(results, query) {
+                val trimmed = query.trim()
+                val matched = results
+                    .filter { it.books.isNotEmpty() }
+                    .sortedWith(
+                        compareByDescending<SourceSearchResult> { it.books.any { b -> b.name.equals(trimmed, ignoreCase = true) } }
+                            .thenByDescending { it.books.size }
+                    )
+                val empty = results.filter { it.books.isEmpty() }
+                matched to empty
+            }
+
             // 搜索结果列表（显示在下方，实时渐进更新）
             LazyColumn(
                 modifier = Modifier
@@ -448,7 +461,9 @@ fun BookSourceSearchScreen(
                         )
                     }
                 }
-                results.forEach { result ->
+
+                // 1. 置顶展示搜到书籍的源与对应书籍
+                matchedResults.forEach { result ->
                     val source = sources.firstOrNull { it.url == result.sourceUrl }
                     item(key = "head-${result.sourceUrl}") {
                         SourceHeader(
@@ -466,6 +481,28 @@ fun BookSourceSearchScreen(
                                 onCancel = { cancelDownload(book) },
                             )
                         }
+                    }
+                }
+
+                // 2. 若已有搜出结果，将未搜到或失败的源分隔标注在下方
+                if (matchedResults.isNotEmpty() && emptyResults.isNotEmpty()) {
+                    item(key = "divider-empty") {
+                        Text(
+                            "未搜到结果的书源 (${emptyResults.size})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+
+                // 3. 未搜到或失败的源排在下方
+                emptyResults.forEach { result ->
+                    item(key = "head-${result.sourceUrl}") {
+                        SourceHeader(
+                            result = result,
+                            progressText = null,
+                        )
                     }
                 }
             }
