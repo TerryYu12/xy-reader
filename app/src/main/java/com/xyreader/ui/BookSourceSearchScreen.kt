@@ -1,6 +1,11 @@
 package com.xyreader.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,15 +16,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -41,13 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import com.xyreader.booksource.BookFetchPhase
 import com.xyreader.booksource.BookFetchService
 import com.xyreader.booksource.BookFetchState
@@ -57,29 +70,57 @@ import com.xyreader.booksource.LegadoSearchService
 import com.xyreader.booksource.LegadoSourceStore
 import com.xyreader.booksource.SourceBook
 import com.xyreader.booksource.SourceSearchResult
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
  * 书源搜索页：在已启用的源里搜索，结果按来源分组，逐本「抓取整本」入库。
  *
- * 抓取进度来自 [LegadoBookDownloader] 的 onProgress 回调；进度状态放在 StateFlow 里
- * （回调在 IO 线程触发，直接改 Compose 状态不安全）。
+ * 支持选择搜索范围、实时搜索进度指示、停止搜索（保留已有结果）与刷新搜索。
  */
 private const val TAG = "XYBSearch"
 
 @Composable
-fun BookSourceSearchScreen(onBack: () -> Unit) {
+fun BookSourceSearchScreen(
+    onBack: () -> Unit,
+    searchService: LegadoSearchService = remember { LegadoSearchService() },
+) {
     val context = LocalContext.current
     val store = remember { LegadoSourceStore(context) }
-    val searchService = remember { LegadoSearchService() }
     val sources by store.sources.collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
     var query by rememberSaveable { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<SourceSearchResult>>(emptyList()) }
     var searched by remember { mutableStateOf(false) }
+    var searchStopped by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<SourceSearchResult>>(emptyList()) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
+    var searchTotal by remember { mutableStateOf(0) }
+    var searchDone by remember { mutableStateOf(0) }
+    var currentSearchingSourceName by remember { mutableStateOf<String?>(null) }
+
+    /** 可搜索的源；页面里所有按钮的可用性都看它 */
+    val searchableSources: List<LegadoBookSource> = remember(sources) {
+        sources.filter { it.enabled && it.canSearch }
+    }
+
+    // 搜索范围：已勾选的源 URL 集合；null 表示默认全选
+    var selectedUrls by remember { mutableStateOf<Set<String>?>(null) }
+    var showScopeDialog by remember { mutableStateOf(false) }
+
+    val effectiveSelectedUrls: Set<String> = selectedUrls ?: searchableSources.map { it.url }.toSet()
+    val activeSources: List<LegadoBookSource> = searchableSources.filter { it.url in effectiveSelectedUrls }
+
+    val scopeSummary = when {
+        searchableSources.isEmpty() -> "无可用源"
+        effectiveSelectedUrls.size >= searchableSources.size -> "全部 (${searchableSources.size})"
+        effectiveSelectedUrls.isEmpty() -> "未选 (0/${searchableSources.size})"
+        else -> "已选 ${activeSources.size}/${searchableSources.size}"
+    }
+
     // 抓取跑在前台服务里，进度/结局从进程级 BookFetchState 读（页面重建也能恢复）
     val states by BookFetchState.statuses.collectAsStateWithLifecycle()
 
@@ -102,17 +143,13 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
             }
     }
 
-    /** 可搜索的源；页面里所有按钮的可用性都看它 */
-    val searchableSources: List<LegadoBookSource> = sources.filter { it.enabled && it.canSearch }
-
-    fun startSearch() {
+    fun startSearch(isRefresh: Boolean = false) {
         if (searching) return
         val keyword = query.trim()
-        // 诊断日志：查"点了搜索却没发请求"时，先看这一行（adb logcat -s XYBSearch）
         Log.d(
             TAG,
             "startSearch query=[$keyword] sources=${sources.size} " +
-                "searchable=${searchableSources.size} canSearch=${searchableSources.map { it.canSearch }}",
+                "searchable=${searchableSources.size} active=${activeSources.size}",
         )
         if (keyword.isEmpty()) {
             scope.launch { snackbar.showSnackbar("请输入关键词") }
@@ -122,23 +159,76 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
             scope.launch { snackbar.showSnackbar("没有可用的源（先在上一页导入并启用）") }
             return
         }
-        scope.launch {
+        if (activeSources.isEmpty()) {
+            scope.launch { snackbar.showSnackbar("未选择任何书源，请点击「范围」重新勾选") }
+            return
+        }
+
+        searchJob?.cancel()
+        searchJob = scope.launch {
             searching = true
-            results = runCatching { searchService.search(searchableSources, keyword) }.getOrElse {
-                Log.w(TAG, "search failed", it)
-                snackbar.showSnackbar(it.message ?: "搜索失败")
-                emptyList()
-            }
-            searched = true
-            searching = false
-            val books = results.sumOf { it.books.size }
-            val firstError = results.firstNotNullOfOrNull { it.error }
-            Log.d(TAG, "results=${results.size} books=$books firstError=$firstError")
-            when {
-                results.isEmpty() -> snackbar.showSnackbar("没有可用的源（先在上一页导入并启用）")
-                books == 0 -> snackbar.showSnackbar(firstError ?: "没搜到结果（检查源规则或网络）")
+            searched = false
+            searchStopped = false
+            searchDone = 0
+            searchTotal = activeSources.size
+            currentSearchingSourceName = null
+            results = emptyList()
+
+            try {
+                searchService.searchProgressive(
+                    sources = activeSources,
+                    query = keyword,
+                    onSourceStart = { source, _, _ ->
+                        currentSearchingSourceName = source.name
+                    },
+                    onSourceResult = { _, result, done, _ ->
+                        searchDone = done
+                        results = results + result
+                    },
+                )
+                searched = true
+                currentSearchingSourceName = null
+                val books = results.sumOf { it.books.size }
+                val firstError = results.firstNotNullOfOrNull { it.error }
+                Log.d(TAG, "results=${results.size} books=$books firstError=$firstError")
+                when {
+                    results.isEmpty() -> snackbar.showSnackbar("没有可用的源（先在上一页导入并启用）")
+                    books == 0 -> snackbar.showSnackbar(firstError ?: "没搜到结果（检查源规则或网络）")
+                }
+            } catch (e: CancellationException) {
+                // 点击「停止搜索」取消协程：停止搜索进度，保留已搜出的结果！
+                searchStopped = true
+                currentSearchingSourceName = null
+                Log.d(TAG, "search cancelled by user, current results kept: ${results.size}")
+            } catch (e: Throwable) {
+                Log.w(TAG, "search failed", e)
+                snackbar.showSnackbar(e.message ?: "搜索失败")
+            } finally {
+                searching = false
             }
         }
+    }
+
+    fun stopSearch() {
+        if (!searching) return
+        searchJob?.cancel()
+        searchJob = null
+        searching = false
+        searchStopped = true
+        currentSearchingSourceName = null
+        val totalFound = results.sumOf { it.books.size }
+        scope.launch {
+            snackbar.showSnackbar("已停止搜索，保留已搜出的 $totalFound 条结果")
+        }
+    }
+
+    fun refreshSearch() {
+        if (searching) {
+            searchJob?.cancel()
+            searchJob = null
+            searching = false
+        }
+        startSearch(isRefresh = true)
     }
 
     /** Android 13+ 才需要通知权限；被拒也不拦抓取（只是没通知） */
@@ -173,6 +263,8 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
                 onBack = onBack,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+
+            // 搜索输入与搜索按钮
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -187,16 +279,150 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { startSearch() }, enabled = !searching) {
+                Button(
+                    onClick = { startSearch() },
+                    enabled = !searching,
+                ) {
                     Text(if (searching) "搜索中" else "搜索")
                 }
             }
+
             Spacer(Modifier.height(8.dp))
-            if (searching) {
-                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+
+            // 搜索范围与停止/刷新控制行
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { showScopeDialog = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Outlined.Tune, contentDescription = "搜索范围", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "范围：$scopeSummary",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { stopSearch() },
+                    enabled = searching,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(Icons.Outlined.Close, contentDescription = "停止搜索", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("停止搜索", style = MaterialTheme.typography.labelMedium)
+                }
+
+                OutlinedButton(
+                    onClick = { refreshSearch() },
+                    enabled = query.isNotBlank() && activeSources.isNotEmpty(),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "刷新搜索", modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("刷新搜索", style = MaterialTheme.typography.labelMedium)
                 }
             }
+
+            // 搜索进度展示
+            if (searching || searchStopped || (searched && results.isNotEmpty())) {
+                Spacer(Modifier.height(6.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val total = searchTotal.coerceAtLeast(1)
+                    val progress = (searchDone.toFloat() / total).coerceIn(0f, 1f)
+                    val totalBooks = results.sumOf { it.books.size }
+
+                    if (searching) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "正在搜索 (${searchDone}/$searchTotal)：${currentSearchingSourceName ?: "连接中…"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "已搜出 ${totalBooks} 本",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    } else if (searchStopped) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = MaterialTheme.colorScheme.error,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "已停止搜索 · 进度 ${searchDone}/$searchTotal",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Text(
+                                text = "已保留 ${totalBooks} 本书",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else if (searched) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "搜索完成 · 共搜索 $searchTotal 个源",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = "共搜出 ${totalBooks} 本书",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            // 搜索结果列表（显示在下方，实时渐进更新）
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -204,10 +430,19 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (!searched && !searching) {
+                if (!searched && !searching && !searchStopped) {
                     item(key = "hint") {
                         Text(
                             "输入关键词后点「搜索」。抓取到的书会合成 TXT 加入书架，之后可离线阅读。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (searchStopped && results.isEmpty()) {
+                    item(key = "stopped-empty") {
+                        Text(
+                            "已停止搜索，未发现结果。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -236,6 +471,169 @@ fun BookSourceSearchScreen(onBack: () -> Unit) {
             }
         }
     }
+
+    if (showScopeDialog) {
+        SearchScopeDialog(
+            sources = searchableSources,
+            initiallySelected = effectiveSelectedUrls,
+            onDismiss = { showScopeDialog = false },
+            onConfirm = { updated ->
+                selectedUrls = updated
+                showScopeDialog = false
+            },
+        )
+    }
+}
+
+/** 选择搜索范围弹层：支持全选、反选、清空、按源分组筛选及逐源勾选 */
+@Composable
+private fun SearchScopeDialog(
+    sources: List<LegadoBookSource>,
+    initiallySelected: Set<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit,
+) {
+    var selected by remember { mutableStateOf(initiallySelected) }
+    val allUrls = remember(sources) { sources.map { it.url }.toSet() }
+
+    val groups = remember(sources) {
+        sources.mapNotNull { it.group?.takeIf { g -> g.isNotBlank() } }.distinct()
+    }
+    var selectedGroupFilter by remember { mutableStateOf<String?>(null) }
+
+    val displayedSources = remember(sources, selectedGroupFilter) {
+        if (selectedGroupFilter == null) sources
+        else sources.filter { it.group == selectedGroupFilter }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("选择搜索范围", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "已选 ${selected.size} / ${sources.size} 个可用源",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(
+                        onClick = { selected = allUrls },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text("全选")
+                    }
+                    TextButton(
+                        onClick = { selected = allUrls - selected },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text("反选")
+                    }
+                    TextButton(
+                        onClick = { selected = emptySet() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text("清空")
+                    }
+                }
+
+                if (groups.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = selectedGroupFilter == null,
+                                onClick = { selectedGroupFilter = null },
+                                label = { Text("全部") },
+                            )
+                        }
+                        items(groups) { group ->
+                            FilterChip(
+                                selected = selectedGroupFilter == group,
+                                onClick = {
+                                    selectedGroupFilter = if (selectedGroupFilter == group) null else group
+                                },
+                                label = { Text(group) },
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(displayedSources, key = { it.url }) { src ->
+                        val isChecked = src.url in selected
+                        Surface(
+                            onClick = {
+                                selected = if (isChecked) selected - src.url else selected + src.url
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                            else MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        selected = if (checked) selected + src.url else selected - src.url
+                                    },
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        src.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (!src.group.isNullOrBlank()) {
+                                        Text(
+                                            src.group,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(selected) }) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+    )
 }
 
 @Composable

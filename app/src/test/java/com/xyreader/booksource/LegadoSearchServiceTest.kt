@@ -3,6 +3,8 @@ package com.xyreader.booksource
 import android.app.Application
 import java.io.IOException
 import java.net.URLEncoder
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -170,5 +172,58 @@ class LegadoSearchServiceTest {
         val results = LegadoSearchService(fetcher = fetcher).search(listOf(jsSource), "关键词")
         assertTrue(results.single().books.isEmpty())
         assertNotNull(results.single().error)
+    }
+
+    @Test fun searchProgressiveReportsProgressAndCollectsResults() = runBlocking {
+        val fetcher = FakeFetcher(mapOf("alpha.example.com" to pageAlpha, "beta.example.com" to pageBeta))
+        val service = LegadoSearchService(fetcher = fetcher)
+        val started = mutableListOf<String>()
+        val completed = mutableListOf<Pair<String, Int>>()
+
+        val results = service.searchProgressive(
+            sources = listOf(
+                source("https://alpha.example.com", "源A"),
+                source("https://beta.example.com", "源B"),
+            ),
+            query = "合成关键词",
+            onSourceStart = { src, idx, total ->
+                started += "${src.name}:$idx/$total"
+            },
+            onSourceResult = { src, res, done, total ->
+                completed += "${src.name}:$done/$total" to res.books.size
+            },
+        )
+
+        assertEquals(2, results.size)
+        assertEquals(listOf("源A:0/2", "源B:1/2"), started)
+        assertEquals(listOf("源A:1/2" to 2, "源B:2/2" to 1), completed)
+    }
+
+    @Test fun searchProgressiveStopsOnCancellationAndPreservesPriorResults() = runBlocking {
+        val fetcher = FakeFetcher(mapOf("alpha.example.com" to pageAlpha, "beta.example.com" to pageBeta))
+        val service = LegadoSearchService(fetcher = fetcher)
+        val collectedResults = mutableListOf<SourceSearchResult>()
+
+        val job = launch {
+            service.searchProgressive(
+                sources = listOf(
+                    source("https://alpha.example.com", "源A"),
+                    source("https://beta.example.com", "源B"),
+                ),
+                query = "关键词",
+                onSourceResult = { _, result, _, _ ->
+                    collectedResults.add(result)
+                    // 在收到第一个源的结果后取消协程（模拟用户点击停止搜索）
+                    cancel()
+                },
+            )
+        }
+        job.join()
+
+        // 源A 已完成并保留在列表中；源B 因停止被跳过，没有发起多余请求
+        assertEquals(1, collectedResults.size)
+        assertEquals("源A", collectedResults[0].sourceName)
+        assertEquals(2, collectedResults[0].books.size)
+        assertTrue("源B 不应在取消后被请求", fetcher.requested.none { it.first.contains("beta.example.com") })
     }
 }

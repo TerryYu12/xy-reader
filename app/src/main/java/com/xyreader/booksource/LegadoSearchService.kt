@@ -3,7 +3,9 @@ package com.xyreader.booksource
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -79,19 +81,38 @@ class LegadoSearchService(
     private val perSourceTimeoutMs: Long = 15_000L,
 ) {
 
-    suspend fun search(
+    /**
+     * 渐进式多源搜索：逐个源搜索，通过回调报告进度与单个源结果；
+     * 支持协程取消（点「停止搜索」时立即响应，已搜到的结果不丢失）。
+     */
+    suspend fun searchProgressive(
         sources: List<LegadoBookSource>,
         query: String,
+        onSourceStart: (suspend (source: LegadoBookSource, index: Int, total: Int) -> Unit)? = null,
+        onSourceResult: (suspend (source: LegadoBookSource, result: SourceSearchResult, index: Int, total: Int) -> Unit)? = null,
     ): List<SourceSearchResult> {
         val keyword = query.trim()
         if (keyword.isEmpty()) return emptyList()
+        val targets = sources.filter { it.enabled && it.canSearch }
+        if (targets.isEmpty()) return emptyList()
         // 抓页面与执行 JS 规则都是阻塞活，整体切到 IO（UI 在主线程调用本方法）
         return withContext(Dispatchers.IO) {
-            sources
-                .filter { it.enabled && it.canSearch }
-                .map { source -> searchOne(source, keyword) }
+            val results = ArrayList<SourceSearchResult>(targets.size)
+            for ((index, source) in targets.withIndex()) {
+                coroutineContext.ensureActive()
+                onSourceStart?.invoke(source, index, targets.size)
+                val result = searchOne(source, keyword)
+                results.add(result)
+                onSourceResult?.invoke(source, result, index + 1, targets.size)
+            }
+            results
         }
     }
+
+    suspend fun search(
+        sources: List<LegadoBookSource>,
+        query: String,
+    ): List<SourceSearchResult> = searchProgressive(sources, query)
 
     private suspend fun searchOne(source: LegadoBookSource, keyword: String): SourceSearchResult {
         val searchUrl = source.searchUrl.orEmpty()
@@ -105,10 +126,14 @@ class LegadoSearchService(
         val url = templateEvaluator.expand(searchUrl)
         val headers = parseHeaders(source.header)
         val outcome = withTimeoutOrNull(perSourceTimeoutMs) {
-            runCatching { fetcher.fetch(url, headers) }.fold(
-                onSuccess = { html -> PageOutcome(html, null) },
-                onFailure = { error -> PageOutcome(null, error.message ?: "取页面失败") },
-            )
+            try {
+                val html = fetcher.fetch(url, headers)
+                PageOutcome(html, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                PageOutcome(null, e.message ?: "取页面失败")
+            }
         } ?: return SourceSearchResult(source.name, source.url, error = "搜索超时或失败")
 
         val html = outcome.html
