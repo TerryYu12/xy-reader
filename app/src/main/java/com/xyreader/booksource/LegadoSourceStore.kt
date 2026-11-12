@@ -63,6 +63,16 @@ class LegadoSourceStore(private val context: Context) {
         }
     }
 
+    /** 批量删除源（按 URL 集合） */
+    suspend fun removeBatch(sourceUrls: Collection<String>): Unit = withContext(Dispatchers.IO) {
+        if (sourceUrls.isEmpty()) return@withContext
+        val urlSet = sourceUrls.toSet()
+        context.bookSourceDataStore.edit { prefs ->
+            val remaining = decode(prefs[KEY_SOURCES]).filterNot { it.url in urlSet }
+            prefs[KEY_SOURCES] = encode(remaining)
+        }
+    }
+
     /** 启用/停用一条源 */
     suspend fun setEnabled(sourceUrl: String, enabled: Boolean): Unit = withContext(Dispatchers.IO) {
         context.bookSourceDataStore.edit { prefs ->

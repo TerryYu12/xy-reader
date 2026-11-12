@@ -96,6 +96,19 @@ class LegadoSourceStoreTest {
         assertTrue(target.sources.first().isEmpty())
     }
 
+    @Test fun removeBatchRemovesMultipleSources() = runBlocking {
+        val target = store()
+        target.import(
+            listOf(
+                source(url = "https://alpha.example.com", name = "A"),
+                source(url = "https://beta.example.com", name = "B"),
+                source(url = "https://gamma.example.com", name = "C"),
+            ),
+        )
+        target.removeBatch(listOf("https://alpha.example.com", "https://gamma.example.com"))
+        assertEquals(listOf("https://beta.example.com"), target.sources.first().map { it.url })
+    }
+
     @Test fun importingEmptyListIsNoOp() = runBlocking {
         val target = store()
         assertEquals(0, target.import(emptyList()))
