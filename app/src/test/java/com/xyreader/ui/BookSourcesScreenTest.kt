@@ -50,7 +50,7 @@ class BookSourcesScreenTest {
         compose.setContent { BookSourcesScreen(onBack = {}, onOpenSearch = {}) }
 
         compose.onNodeWithText("导入源").performClick()
-        compose.onNodeWithText("粘贴 Legado 书源 JSON（数组或单条）").performTextInput("这不是 JSON")
+        compose.onNodeWithText("粘贴 JSON 规则或输入 URL 链接").performTextInput("这不是 JSON")
         compose.onNodeWithText("导入").performClick()
 
         // 报错留在弹层里，弹层不关（用户可继续改）
