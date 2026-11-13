@@ -93,4 +93,49 @@ class BookSourceCheckServiceTest {
         // 取消后应中断，不会跑完全部 10 个
         assertTrue(doneCount < sources.size)
     }
+
+    @Test
+    fun okHttpCheckerHandlesInvalidSchemeSafely() = runBlocking {
+        val checker = OkHttpSourceAvailabilityChecker()
+        val source = dummySource("ftp://invalid.com/books", "FTP源")
+        val result = checker.check(source)
+        assertEquals(SourceCheckStatus.UNAVAILABLE, result.status)
+        assertEquals("无效链接协议", result.message)
+    }
+
+    @Test
+    fun okHttpCheckerHandlesInvalidHostWithSpacesSafely() = runBlocking {
+        val checker = OkHttpSourceAvailabilityChecker()
+        // 来自用户真实崩溃日志中的非法 host：www.630book.cc-By Dark
+        val source = dummySource("http://www.630book.cc-By Dark", "问题源")
+        val result = checker.check(source)
+        assertEquals(SourceCheckStatus.UNAVAILABLE, result.status)
+        assertEquals("无效链接格式", result.message)
+    }
+
+    @Test
+    fun checkSourcesProgressiveIsolatesUnexpectedCheckerExceptions() = runBlocking {
+        val s1 = dummySource("https://normal1.com", "Normal1")
+        val s2 = dummySource("https://exploding.com", "Boom")
+        val s3 = dummySource("https://normal2.com", "Normal2")
+
+        val checker = FakeChecker { source ->
+            if (source.url.contains("exploding")) {
+                throw RuntimeException("网络库内部突发未捕获异常")
+            }
+            SourceCheckResult(source.url, SourceCheckStatus.AVAILABLE, 100L, "100ms")
+        }
+
+        val service = BookSourceCheckService(checker = checker, concurrency = 2)
+        val results = service.checkSourcesProgressive(
+            sources = listOf(s1, s2, s3),
+            onSourceChecked = { _, _, _, _ -> },
+        )
+
+        assertEquals(3, results.size)
+        assertEquals(SourceCheckStatus.AVAILABLE, results[s1.url]?.status)
+        assertEquals(SourceCheckStatus.UNAVAILABLE, results[s2.url]?.status)
+        assertEquals("网络库内部突发未捕获异常", results[s2.url]?.message)
+        assertEquals(SourceCheckStatus.AVAILABLE, results[s3.url]?.status)
+    }
 }

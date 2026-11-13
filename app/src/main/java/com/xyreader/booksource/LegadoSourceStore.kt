@@ -1,6 +1,9 @@
 package com.xyreader.booksource
 
 import android.content.Context
+import android.util.JsonReader
+import android.util.JsonToken
+import android.util.JsonWriter
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -9,7 +12,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
+import java.io.StringReader
+import java.io.StringWriter
 
 private val Context.bookSourceDataStore by preferencesDataStore(name = "book_sources")
 
@@ -91,65 +95,323 @@ class LegadoSourceStore(private val context: Context) {
     private fun decode(raw: String?): List<LegadoBookSource> {
         if (raw.isNullOrBlank()) return emptyList()
         return runCatching {
-            val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { index ->
-                array.optJSONObject(index)?.let { runCatching { LegadoBookSource.fromJson(it) }.getOrNull() }
+            val reader = JsonReader(StringReader(raw))
+            val list = mutableListOf<LegadoBookSource>()
+            reader.beginArray()
+            while (reader.hasNext()) {
+                val source = readSource(reader)
+                if (source != null) {
+                    list.add(source)
+                }
             }
-        }.getOrDefault(emptyList())
-    }
-
-    /** 存储用最小字段集：够还原规则与启停，不存 raw（避免把导入时的原始 JSON 长期留着） */
-    private fun encode(sources: List<LegadoBookSource>): String {
-        val array = JSONArray()
-        sources.forEach { source ->
-            array.put(
-                JSONObject()
-                    .put("bookSourceName", source.name)
-                    .put("bookSourceUrl", source.url)
-                    .put("bookSourceType", source.type.code)
-                    .put("bookSourceGroup", source.group ?: "")
-                    .put("bookSourceComment", source.comment ?: "")
-                    .put("enabled", source.enabled)
-                    .put("enabledExplore", source.enabledExplore)
-                    .put("header", source.header ?: "")
-                    .put("loginUrl", source.loginUrl ?: "")
-                    .put("searchUrl", source.searchUrl ?: "")
-                    .put("exploreUrl", source.exploreUrl ?: "")
-                    .put("bookUrlPattern", source.bookUrlPattern ?: "")
-                    .put("concurrentRate", source.concurrentRate ?: "")
-                    .put("ruleSearch", ruleGroup(source.ruleSearch))
-                    .put("ruleBookInfo", ruleGroup(source.ruleBookInfo))
-                    .put("ruleToc", ruleGroup(source.ruleToc))
-                    .put("ruleContent", ruleGroup(source.ruleContent)),
-            )
+            reader.endArray()
+            reader.close()
+            list
+        }.getOrElse {
+            // 兜底：流式解析遇到旧格式或不规则数据时，回退到 JSONArray 逐条解析
+            runCatching {
+                val array = JSONArray(raw)
+                (0 until array.length()).mapNotNull { index ->
+                    array.optJSONObject(index)?.let { runCatching { LegadoBookSource.fromJson(it) }.getOrNull() }
+                }
+            }.getOrDefault(emptyList())
         }
-        return array.toString()
     }
 
-    private fun ruleGroup(value: Any): JSONObject = when (value) {
-        is RuleSearch -> JSONObject()
-            .put("bookList", value.bookList).put("name", value.name).put("author", value.author)
-            .put("kind", value.kind).put("coverUrl", value.coverUrl).put("intro", value.intro)
-            .put("wordCount", value.wordCount).put("lastChapter", value.lastChapter)
-            .put("bookUrl", value.bookUrl).put("checkKeyWord", value.checkKeyWord)
+    private fun readSource(reader: JsonReader): LegadoBookSource? {
+        var name = ""
+        var url = ""
+        var type = BookSourceType.NOVEL
+        var group: String? = null
+        var comment: String? = null
+        var enabled = true
+        var enabledExplore = true
+        var header: String? = null
+        var loginUrl: String? = null
+        var searchUrl: String? = null
+        var exploreUrl: String? = null
+        var bookUrlPattern: String? = null
+        var concurrentRate: String? = null
+        var ruleSearch = RuleSearch()
+        var ruleBookInfo = RuleBookInfo()
+        var ruleToc = RuleToc()
+        var ruleContent = RuleContent()
 
-        is RuleBookInfo -> JSONObject()
-            .put("init", value.init).put("name", value.name).put("author", value.author)
-            .put("kind", value.kind).put("intro", value.intro).put("coverUrl", value.coverUrl)
-            .put("tocUrl", value.tocUrl).put("wordCount", value.wordCount)
-            .put("lastChapter", value.lastChapter).put("canReName", value.canReName)
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "bookSourceName" -> name = reader.nextSafeString().trim()
+                "bookSourceUrl" -> url = reader.nextSafeString().trim()
+                "bookSourceType" -> type = BookSourceType.fromCode(reader.nextIntOrDefault(0))
+                "bookSourceGroup" -> group = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "bookSourceComment" -> comment = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "enabled" -> enabled = reader.nextBooleanOrDefault(true)
+                "enabledExplore" -> enabledExplore = reader.nextBooleanOrDefault(true)
+                "header" -> header = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "loginUrl" -> loginUrl = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "searchUrl" -> searchUrl = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "exploreUrl" -> exploreUrl = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "bookUrlPattern" -> bookUrlPattern = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "concurrentRate" -> concurrentRate = reader.nextStringOrNull()?.takeIf { it.isNotBlank() }
+                "ruleSearch" -> ruleSearch = readRuleSearch(reader)
+                "ruleBookInfo" -> ruleBookInfo = readRuleBookInfo(reader)
+                "ruleToc" -> ruleToc = readRuleToc(reader)
+                "ruleContent" -> ruleContent = readRuleContent(reader)
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        if (name.isEmpty() || url.isEmpty()) return null
+        return LegadoBookSource(
+            name = name,
+            url = url,
+            type = type,
+            group = group,
+            comment = comment,
+            enabled = enabled,
+            enabledExplore = enabledExplore,
+            header = header,
+            loginUrl = loginUrl,
+            searchUrl = searchUrl,
+            exploreUrl = exploreUrl,
+            bookUrlPattern = bookUrlPattern,
+            concurrentRate = concurrentRate,
+            ruleSearch = ruleSearch,
+            ruleBookInfo = ruleBookInfo,
+            ruleToc = ruleToc,
+            ruleContent = ruleContent,
+        )
+    }
 
-        is RuleToc -> JSONObject()
-            .put("chapterList", value.chapterList).put("chapterName", value.chapterName)
-            .put("chapterUrl", value.chapterUrl).put("updateTime", value.updateTime)
-            .put("isVip", value.isVip).put("isVolume", value.isVolume).put("nextTocUrl", value.nextTocUrl)
+    private fun readRuleSearch(reader: JsonReader): RuleSearch {
+        var bookList = ""
+        var name = ""
+        var author = ""
+        var kind = ""
+        var coverUrl = ""
+        var intro = ""
+        var wordCount = ""
+        var lastChapter = ""
+        var bookUrl = ""
+        var checkKeyWord = ""
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "bookList" -> bookList = reader.nextSafeString()
+                "name" -> name = reader.nextSafeString()
+                "author" -> author = reader.nextSafeString()
+                "kind" -> kind = reader.nextSafeString()
+                "coverUrl" -> coverUrl = reader.nextSafeString()
+                "intro" -> intro = reader.nextSafeString()
+                "wordCount" -> wordCount = reader.nextSafeString()
+                "lastChapter" -> lastChapter = reader.nextSafeString()
+                "bookUrl" -> bookUrl = reader.nextSafeString()
+                "checkKeyWord" -> checkKeyWord = reader.nextSafeString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return RuleSearch(bookList, name, author, kind, coverUrl, intro, wordCount, lastChapter, bookUrl, checkKeyWord)
+    }
 
-        is RuleContent -> JSONObject()
-            .put("content", value.content).put("nextContentUrl", value.nextContentUrl)
-            .put("replaceRegex", value.replaceRegex).put("imageStyle", value.imageStyle)
-            .put("sourceRegex", value.sourceRegex).put("webJs", value.webJs).put("title", value.title)
+    private fun readRuleBookInfo(reader: JsonReader): RuleBookInfo {
+        var init = ""
+        var name = ""
+        var author = ""
+        var kind = ""
+        var intro = ""
+        var coverUrl = ""
+        var tocUrl = ""
+        var wordCount = ""
+        var lastChapter = ""
+        var canReName = ""
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "init" -> init = reader.nextSafeString()
+                "name" -> name = reader.nextSafeString()
+                "author" -> author = reader.nextSafeString()
+                "kind" -> kind = reader.nextSafeString()
+                "intro" -> intro = reader.nextSafeString()
+                "coverUrl" -> coverUrl = reader.nextSafeString()
+                "tocUrl" -> tocUrl = reader.nextSafeString()
+                "wordCount" -> wordCount = reader.nextSafeString()
+                "lastChapter" -> lastChapter = reader.nextSafeString()
+                "canReName" -> canReName = reader.nextSafeString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return RuleBookInfo(init, name, author, kind, intro, coverUrl, tocUrl, wordCount, lastChapter, canReName)
+    }
 
-        else -> JSONObject()
+    private fun readRuleToc(reader: JsonReader): RuleToc {
+        var chapterList = ""
+        var chapterName = ""
+        var chapterUrl = ""
+        var updateTime = ""
+        var isVip = ""
+        var isVolume = ""
+        var nextTocUrl = ""
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "chapterList" -> chapterList = reader.nextSafeString()
+                "chapterName" -> chapterName = reader.nextSafeString()
+                "chapterUrl" -> chapterUrl = reader.nextSafeString()
+                "updateTime" -> updateTime = reader.nextSafeString()
+                "isVip" -> isVip = reader.nextSafeString()
+                "isVolume" -> isVolume = reader.nextSafeString()
+                "nextTocUrl" -> nextTocUrl = reader.nextSafeString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return RuleToc(chapterList, chapterName, chapterUrl, updateTime, isVip, isVolume, nextTocUrl)
+    }
+
+    private fun readRuleContent(reader: JsonReader): RuleContent {
+        var content = ""
+        var nextContentUrl = ""
+        var replaceRegex = ""
+        var imageStyle = ""
+        var sourceRegex = ""
+        var webJs = ""
+        var title = ""
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "content" -> content = reader.nextSafeString()
+                "nextContentUrl" -> nextContentUrl = reader.nextSafeString()
+                "replaceRegex" -> replaceRegex = reader.nextSafeString()
+                "imageStyle" -> imageStyle = reader.nextSafeString()
+                "sourceRegex" -> sourceRegex = reader.nextSafeString()
+                "webJs" -> webJs = reader.nextSafeString()
+                "title" -> title = reader.nextSafeString()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return RuleContent(content, nextContentUrl, replaceRegex, imageStyle, sourceRegex, webJs, title)
+    }
+
+    /** 存储用最小字段集：流式写入避免大量 JSONObject 导致 OOM，省略空规则字段以压缩体积 */
+    private fun encode(sources: List<LegadoBookSource>): String {
+        val sw = StringWriter()
+        val writer = JsonWriter(sw)
+        writer.beginArray()
+        for (source in sources) {
+            writer.beginObject()
+            writer.name("bookSourceName").value(source.name)
+            writer.name("bookSourceUrl").value(source.url)
+            writer.name("bookSourceType").value(source.type.code)
+            if (!source.group.isNullOrEmpty()) writer.name("bookSourceGroup").value(source.group)
+            if (!source.comment.isNullOrEmpty()) writer.name("bookSourceComment").value(source.comment)
+            writer.name("enabled").value(source.enabled)
+            writer.name("enabledExplore").value(source.enabledExplore)
+            if (!source.header.isNullOrEmpty()) writer.name("header").value(source.header)
+            if (!source.loginUrl.isNullOrEmpty()) writer.name("loginUrl").value(source.loginUrl)
+            if (!source.searchUrl.isNullOrEmpty()) writer.name("searchUrl").value(source.searchUrl)
+            if (!source.exploreUrl.isNullOrEmpty()) writer.name("exploreUrl").value(source.exploreUrl)
+            if (!source.bookUrlPattern.isNullOrEmpty()) writer.name("bookUrlPattern").value(source.bookUrlPattern)
+            if (!source.concurrentRate.isNullOrEmpty()) writer.name("concurrentRate").value(source.concurrentRate)
+
+            encodeRuleSearch(writer, source.ruleSearch)
+            encodeRuleBookInfo(writer, source.ruleBookInfo)
+            encodeRuleToc(writer, source.ruleToc)
+            encodeRuleContent(writer, source.ruleContent)
+
+            writer.endObject()
+        }
+        writer.endArray()
+        writer.close()
+        return sw.toString()
+    }
+
+    private fun encodeRuleSearch(writer: JsonWriter, rule: RuleSearch) {
+        writer.name("ruleSearch").beginObject()
+        if (rule.bookList.isNotEmpty()) writer.name("bookList").value(rule.bookList)
+        if (rule.name.isNotEmpty()) writer.name("name").value(rule.name)
+        if (rule.author.isNotEmpty()) writer.name("author").value(rule.author)
+        if (rule.kind.isNotEmpty()) writer.name("kind").value(rule.kind)
+        if (rule.coverUrl.isNotEmpty()) writer.name("coverUrl").value(rule.coverUrl)
+        if (rule.intro.isNotEmpty()) writer.name("intro").value(rule.intro)
+        if (rule.wordCount.isNotEmpty()) writer.name("wordCount").value(rule.wordCount)
+        if (rule.lastChapter.isNotEmpty()) writer.name("lastChapter").value(rule.lastChapter)
+        if (rule.bookUrl.isNotEmpty()) writer.name("bookUrl").value(rule.bookUrl)
+        if (rule.checkKeyWord.isNotEmpty()) writer.name("checkKeyWord").value(rule.checkKeyWord)
+        writer.endObject()
+    }
+
+    private fun encodeRuleBookInfo(writer: JsonWriter, rule: RuleBookInfo) {
+        writer.name("ruleBookInfo").beginObject()
+        if (rule.init.isNotEmpty()) writer.name("init").value(rule.init)
+        if (rule.name.isNotEmpty()) writer.name("name").value(rule.name)
+        if (rule.author.isNotEmpty()) writer.name("author").value(rule.author)
+        if (rule.kind.isNotEmpty()) writer.name("kind").value(rule.kind)
+        if (rule.intro.isNotEmpty()) writer.name("intro").value(rule.intro)
+        if (rule.coverUrl.isNotEmpty()) writer.name("coverUrl").value(rule.coverUrl)
+        if (rule.tocUrl.isNotEmpty()) writer.name("tocUrl").value(rule.tocUrl)
+        if (rule.wordCount.isNotEmpty()) writer.name("wordCount").value(rule.wordCount)
+        if (rule.lastChapter.isNotEmpty()) writer.name("lastChapter").value(rule.lastChapter)
+        if (rule.canReName.isNotEmpty()) writer.name("canReName").value(rule.canReName)
+        writer.endObject()
+    }
+
+    private fun encodeRuleToc(writer: JsonWriter, rule: RuleToc) {
+        writer.name("ruleToc").beginObject()
+        if (rule.chapterList.isNotEmpty()) writer.name("chapterList").value(rule.chapterList)
+        if (rule.chapterName.isNotEmpty()) writer.name("chapterName").value(rule.chapterName)
+        if (rule.chapterUrl.isNotEmpty()) writer.name("chapterUrl").value(rule.chapterUrl)
+        if (rule.updateTime.isNotEmpty()) writer.name("updateTime").value(rule.updateTime)
+        if (rule.isVip.isNotEmpty()) writer.name("isVip").value(rule.isVip)
+        if (rule.isVolume.isNotEmpty()) writer.name("isVolume").value(rule.isVolume)
+        if (rule.nextTocUrl.isNotEmpty()) writer.name("nextTocUrl").value(rule.nextTocUrl)
+        writer.endObject()
+    }
+
+    private fun encodeRuleContent(writer: JsonWriter, rule: RuleContent) {
+        writer.name("ruleContent").beginObject()
+        if (rule.content.isNotEmpty()) writer.name("content").value(rule.content)
+        if (rule.nextContentUrl.isNotEmpty()) writer.name("nextContentUrl").value(rule.nextContentUrl)
+        if (rule.replaceRegex.isNotEmpty()) writer.name("replaceRegex").value(rule.replaceRegex)
+        if (rule.imageStyle.isNotEmpty()) writer.name("imageStyle").value(rule.imageStyle)
+        if (rule.sourceRegex.isNotEmpty()) writer.name("sourceRegex").value(rule.sourceRegex)
+        if (rule.webJs.isNotEmpty()) writer.name("webJs").value(rule.webJs)
+        if (rule.title.isNotEmpty()) writer.name("title").value(rule.title)
+        writer.endObject()
+    }
+
+    private fun JsonReader.nextStringOrNull(): String? {
+        if (peek() == JsonToken.NULL) {
+            nextNull()
+            return null
+        }
+        return nextString()
+    }
+
+    private fun JsonReader.nextSafeString(): String {
+        if (peek() == JsonToken.NULL) {
+            nextNull()
+            return ""
+        }
+        return nextString()
+    }
+
+    private fun JsonReader.nextBooleanOrDefault(default: Boolean): Boolean {
+        if (peek() == JsonToken.NULL) {
+            nextNull()
+            return default
+        }
+        return runCatching { nextBoolean() }.getOrDefault(default)
+    }
+
+    private fun JsonReader.nextIntOrDefault(default: Int): Int {
+        if (peek() == JsonToken.NULL) {
+            nextNull()
+            return default
+        }
+        return runCatching { nextInt() }.getOrDefault(default)
     }
 
     private companion object {

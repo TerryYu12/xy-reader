@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -94,7 +95,7 @@ fun BookSourcesScreen(
     var checkDone by remember { mutableStateOf(0) }
     var checkTotal by remember { mutableStateOf(0) }
     var currentCheckingUrl by remember { mutableStateOf<String?>(null) }
-    var checkResults by remember { mutableStateOf<Map<String, SourceCheckResult>>(emptyMap()) }
+    val checkResults = remember { mutableStateMapOf<String, SourceCheckResult>() }
 
     var isBatchMode by remember { mutableStateOf(false) }
     var selectedUrls by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -117,7 +118,7 @@ fun BookSourcesScreen(
             checkDone = 0
             checkTotal = sources.size
             currentCheckingUrl = null
-            checkResults = emptyMap()
+            checkResults.clear()
             try {
                 checkService.checkSourcesProgressive(
                     sources = sources,
@@ -127,7 +128,7 @@ fun BookSourcesScreen(
                     onSourceChecked = { source, result, done, total ->
                         checkDone = done
                         checkTotal = total
-                        checkResults = checkResults + (source.url to result)
+                        checkResults[source.url] = result
                     },
                 )
                 currentCheckingUrl = null
@@ -157,7 +158,7 @@ fun BookSourcesScreen(
                 checkService.checkSourcesProgressive(
                     sources = listOf(source),
                     onSourceChecked = { _, result, _, _ ->
-                        checkResults = checkResults + (source.url to result)
+                        checkResults[source.url] = result
                     },
                 )
             } finally {
@@ -449,7 +450,7 @@ fun BookSourcesScreen(
                     pendingRemove = null
                     scope.launch {
                         store.remove(url)
-                        checkResults = checkResults - url
+                        checkResults.remove(url)
                         selectedUrls = selectedUrls - url
                         snackbar.showSnackbar("已删除")
                     }
@@ -470,7 +471,7 @@ fun BookSourcesScreen(
                     pendingBatchDelete = null
                     scope.launch {
                         store.removeBatch(urls)
-                        checkResults = checkResults.filterKeys { it !in urls }
+                        urls.forEach { checkResults.remove(it) }
                         selectedUrls = selectedUrls - urls
                         if (selectedUrls.isEmpty()) isBatchMode = false
                         snackbar.showSnackbar("已批量删除 $count 条书源")

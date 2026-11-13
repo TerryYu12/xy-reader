@@ -4,11 +4,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -62,19 +63,28 @@ class OkHttpSourceAvailabilityChecker(
             )
         }
 
-        val headers = parseHeaders(source.header)
-        val requestBuilder = Request.Builder().url(rawUrl)
-        if (!headers.containsKey("User-Agent") && !headers.containsKey("user-agent")) {
-            requestBuilder.header("User-Agent", BookSourceImporter.DEFAULT_USER_AGENT)
-        }
-        headers.forEach { (k, v) ->
-            if (k.isNotBlank() && v.isNotBlank()) {
-                requestBuilder.header(k, v)
-            }
+        val httpUrl = rawUrl.toHttpUrlOrNull()
+        if (httpUrl == null) {
+            return@withContext SourceCheckResult(
+                url = source.url,
+                status = SourceCheckStatus.UNAVAILABLE,
+                message = "无效链接格式",
+            )
         }
 
         val start = System.currentTimeMillis()
         try {
+            val headers = parseHeaders(source.header)
+            val requestBuilder = Request.Builder().url(httpUrl)
+            if (!headers.containsKey("User-Agent") && !headers.containsKey("user-agent")) {
+                requestBuilder.header("User-Agent", BookSourceImporter.DEFAULT_USER_AGENT)
+            }
+            headers.forEach { (k, v) ->
+                if (k.isNotBlank() && v.isNotBlank()) {
+                    requestBuilder.header(k, v)
+                }
+            }
+
             client.newCall(requestBuilder.build()).execute().use { response ->
                 val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(1L)
                 val code = response.code
@@ -96,6 +106,9 @@ class OkHttpSourceAvailabilityChecker(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: IllegalArgumentException) {
+            val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(1L)
+            SourceCheckResult(source.url, SourceCheckStatus.UNAVAILABLE, elapsed, "链接格式错误")
         } catch (e: SocketTimeoutException) {
             val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(1L)
             SourceCheckResult(source.url, SourceCheckStatus.UNAVAILABLE, elapsed, "连接超时")
@@ -149,13 +162,23 @@ class BookSourceCheckService(
         val doneCounter = AtomicInteger(0)
         val semaphore = Semaphore(concurrency)
 
-        coroutineScope {
+        supervisorScope {
             val deferreds = sources.map { source ->
                 async {
                     semaphore.withPermit {
                         coroutineContext.ensureActive()
                         onSourceStart?.invoke(source)
-                        val result = checker.check(source)
+                        val result = try {
+                            checker.check(source)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            SourceCheckResult(
+                                url = source.url,
+                                status = SourceCheckStatus.UNAVAILABLE,
+                                message = e.message ?: "检测失败",
+                            )
+                        }
                         results[source.url] = result
                         val done = doneCounter.incrementAndGet()
                         onSourceChecked(source, result, done, total)

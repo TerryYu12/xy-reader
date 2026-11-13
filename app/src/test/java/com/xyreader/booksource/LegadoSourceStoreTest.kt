@@ -114,4 +114,32 @@ class LegadoSourceStoreTest {
         assertEquals(0, target.import(emptyList()))
         assertTrue(target.sources.first().isEmpty())
     }
+
+    @Test fun largeBatchImportAndRemoveBatchStreamAccurately() = runBlocking {
+        val target = store()
+        val sources = (1..100).map { i ->
+            source(
+                url = "https://source$i.example.com",
+                name = "源-$i",
+                enabled = i % 2 == 0,
+            )
+        }
+        val added = target.import(sources)
+        assertEquals(100, added)
+        assertEquals(100, target.sources.first().size)
+
+        // 验证各字段保持完整
+        val firstSource = target.sources.first().first { it.url == "https://source1.example.com" }
+        assertEquals("源-1", firstSource.name)
+        assertFalse(firstSource.enabled)
+        assertEquals("class.result@tag.li", firstSource.ruleSearch.bookList)
+
+        // 批量删除奇数源 50 条
+        val toDelete = (1..100 step 2).map { "https://source$it.example.com" }
+        target.removeBatch(toDelete)
+
+        val remaining = target.sources.first()
+        assertEquals(50, remaining.size)
+        assertTrue(remaining.all { it.enabled })
+    }
 }
