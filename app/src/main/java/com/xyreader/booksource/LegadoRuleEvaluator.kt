@@ -76,15 +76,47 @@ class LegadoRuleEvaluator(
         return RuleValue.Empty
     }
 
-    /** 便捷取值：第一个非空文本 */
-    fun firstString(rule: LegadoRule, input: RuleValue): String? =
-        (evaluate(rule, input) as? RuleValue.Texts)
-            ?.values
-            ?.firstOrNull { it.isNotBlank() }
+    /** 便捷取值：第一个非空文本，若结果为元素则提取 text（无文本元素如 img 兜底提取 src，a 兜底 href） */
+    fun firstString(rule: LegadoRule, input: RuleValue): String? {
+        val result = evaluate(rule, input)
+        return when (result) {
+            is RuleValue.Texts -> result.values.firstOrNull { it.isNotBlank() }
+            is RuleValue.HtmlNodes -> {
+                val element = result.elements.firstOrNull() ?: return null
+                val text = element.text().trim()
+                if (text.isNotEmpty()) {
+                    text
+                } else when {
+                    element.tagName().equals("img", ignoreCase = true) ->
+                        element.attr("src").takeIf { it.isNotBlank() }
+                            ?: element.attr("data-src").takeIf { it.isNotBlank() }
+                            ?: element.attr("data-original").takeIf { it.isNotBlank() }
+                    element.tagName().equals("a", ignoreCase = true) ->
+                        element.attr("href").takeIf { it.isNotBlank() }
+                    else -> null
+                }
+            }
+            RuleValue.Empty -> null
+        }
+    }
 
-    /** 便捷取值：全部文本（已去空、已去重顺序保留） */
+    /** 便捷取值：全部文本（已去空、已去重顺序保留），若结果为元素则兜底提取 */
     fun strings(rule: LegadoRule, input: RuleValue): List<String> =
-        (evaluate(rule, input) as? RuleValue.Texts)?.values?.filter { it.isNotBlank() }.orEmpty()
+        when (val result = evaluate(rule, input)) {
+            is RuleValue.Texts -> result.values.filter { it.isNotBlank() }
+            is RuleValue.HtmlNodes -> result.elements.mapNotNull { element ->
+                when {
+                    element.tagName().equals("a", ignoreCase = true) ->
+                        element.attr("href").takeIf { it.isNotBlank() } ?: element.text().trim().takeIf { it.isNotEmpty() }
+                    element.tagName().equals("img", ignoreCase = true) ->
+                        element.attr("src").takeIf { it.isNotBlank() }
+                            ?: element.attr("data-src").takeIf { it.isNotBlank() }
+                            ?: element.attr("data-original").takeIf { it.isNotBlank() }
+                    else -> element.text().trim().takeIf { it.isNotEmpty() }
+                }
+            }
+            RuleValue.Empty -> emptyList()
+        }
 
     /** 便捷取值：全部元素 */
     fun elements(rule: LegadoRule, input: RuleValue): List<Element> =
@@ -143,8 +175,19 @@ class LegadoRuleEvaluator(
                 segment.startsWith("xpath:", ignoreCase = true) -> return RuleValue.Empty
                 segment.startsWith("js:", ignoreCase = true) -> runJs(segment.substringAfter(':'), current)
                 else -> {
-                    val htmlNodes = current as? RuleValue.HtmlNodes ?: return RuleValue.Empty
-                    applyHtmlSegment(segment, htmlNodes)
+                    val htmlNodes = current as? RuleValue.HtmlNodes
+                    if (htmlNodes != null) {
+                        applyHtmlSegment(segment, htmlNodes)
+                    } else if (current is RuleValue.Texts) {
+                        val jsonValue = selectJsonPath(segment, current)
+                        if (jsonValue !is RuleValue.Empty) {
+                            jsonValue
+                        } else {
+                            RuleValue.Empty
+                        }
+                    } else {
+                        RuleValue.Empty
+                    }
                 }
             }
             if (current is RuleValue.Empty) return RuleValue.Empty
@@ -162,18 +205,25 @@ class LegadoRuleEvaluator(
             body.startsWith("class.") -> pick(nodes.elements.flatMap { it.select("." + body.removePrefix("class.")) }, index)
             body.startsWith("tag.") -> pick(nodes.elements.flatMap { it.select(body.removePrefix("tag.")) }, index)
             body.startsWith("id.") -> pick(nodes.elements.flatMap { it.select("#" + body.removePrefix("id.")) }, index)
-            body == "html" -> RuleValue.Texts(listOf(nodes.elements.joinToString("\n") { it.outerHtml() }))
+            body.startsWith(".") -> pick(nodes.elements.flatMap { it.select(body) }, index)
+            body.startsWith("#") -> pick(nodes.elements.flatMap { it.select(body) }, index)
+            body == "html" || body == "outerHtml" -> RuleValue.Texts(listOf(nodes.elements.joinToString("\n") { it.outerHtml() }))
+            body == "innerHtml" -> RuleValue.Texts(listOf(nodes.elements.joinToString("\n") { it.html() }))
             body == "text" || body == "textNodes" || body == "ownText" -> RuleValue.Texts(
                 nodes.elements.map { it.text().trim() }.filter { it.isNotEmpty() },
             )
             body.startsWith("abs:") -> RuleValue.Texts(
                 nodes.elements.mapNotNull { it.absUrl(body.removePrefix("abs:")).takeIf { url -> url.isNotBlank() } },
             )
-            else -> RuleValue.Texts(
-                nodes.elements.mapNotNull { element ->
-                    element.attr(body).trim().takeIf { it.isNotEmpty() }
-                },
-            )
+            isCssSelectorOrTag(body) -> {
+                val selected = nodes.elements.flatMap { runCatching { it.select(body) }.getOrDefault(emptyList()) }
+                if (selected.isNotEmpty()) {
+                    pick(selected, index)
+                } else {
+                    extractAttribute(body, nodes.elements)
+                }
+            }
+            else -> extractAttribute(body, nodes.elements)
         }
     }
 
@@ -225,7 +275,21 @@ class LegadoRuleEvaluator(
             if (next.isEmpty()) return RuleValue.Empty
             current = next
         }
-        val texts = current.mapNotNull { value -> value?.let { stringify(it) } }.filter { it.isNotBlank() }
+        val texts = ArrayList<String>()
+        for (item in current) {
+            if (item is JSONArray) {
+                for (i in 0 until item.length()) {
+                    val v = item.opt(i)
+                    if (v != null) {
+                        val s = stringify(v)
+                        if (s.isNotBlank()) texts += s
+                    }
+                }
+            } else if (item != null) {
+                val s = stringify(item)
+                if (s.isNotBlank()) texts += s
+            }
+        }
         return if (texts.isEmpty()) RuleValue.Empty else RuleValue.Texts(texts)
     }
 
@@ -459,8 +523,38 @@ class LegadoRuleEvaluator(
         return RuleValue.Texts(value.values.map { regex.replace(it, replacement).trim() })
     }
 
+    private fun extractAttribute(attrName: String, elements: List<Element>): RuleValue {
+        val texts = elements.mapNotNull { element ->
+            when (attrName.lowercase()) {
+                "src" -> element.attr("src").takeIf { it.isNotBlank() }
+                    ?: element.attr("data-src").takeIf { it.isNotBlank() }
+                    ?: element.attr("data-original").takeIf { it.isNotBlank() }
+                "href" -> element.attr("href").trim().takeIf { it.isNotEmpty() }
+                else -> element.attr(attrName).trim().takeIf { it.isNotEmpty() }
+            }
+        }.filter { it.isNotBlank() }
+        return if (texts.isEmpty()) RuleValue.Empty else RuleValue.Texts(texts)
+    }
+
     private companion object {
         /** 选择器尾部索引：`.0`、`.-1`（取自 Legado 的索引写法） */
         val INDEX_SUFFIX = Regex("\\.(-?\\d+)$")
+
+        val COMMON_HTML_TAGS = setOf(
+            "a", "img", "div", "span", "p", "li", "ul", "ol", "table", "tbody", "tr", "td", "th",
+            "h1", "h2", "h3", "h4", "h5", "h6", "dd", "dt", "dl", "em", "strong", "b", "i", "font",
+            "section", "article", "header", "footer", "nav", "aside", "form", "input", "button",
+            "textarea", "select", "option", "label", "blockquote", "pre", "code",
+        )
+
+        fun isCssSelectorOrTag(body: String): Boolean {
+            val lower = body.lowercase()
+            if (lower in COMMON_HTML_TAGS) return true
+            if (body.contains(' ') || body.contains('>') || body.contains('+') || body.contains('~') ||
+                body.contains('[') || body.contains(']') || body.contains(':') ||
+                body.contains('.') || body.contains('#') || body.contains(',')
+            ) return true
+            return false
+        }
     }
 }

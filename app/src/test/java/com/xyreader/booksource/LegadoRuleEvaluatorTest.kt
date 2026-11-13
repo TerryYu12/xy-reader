@@ -192,4 +192,42 @@ class LegadoRuleEvaluatorTest {
         assertEquals(null, evaluator.firstString(LegadoRule.parse("@js:java.getString('class.item@text')"), page))
         assertTrue(LegadoRule.parse("@js:x").usesJs)
     }
+
+    @Test fun supportsCssShorthandSelectorsAndTags() {
+        val page = evaluator.parseHtml(html)
+        // 支持以 . 开头的类选择器，和裸标签选择器 a
+        val titles = evaluator.strings(LegadoRule.parse(".item@a@text"), page)
+        assertEquals(listOf("第一本", "第二本", "第三本"), titles)
+
+        // 支持空格后代选择器
+        val titlesDirect = evaluator.strings(LegadoRule.parse(".item a@text"), page)
+        assertEquals(listOf("第一本", "第二本", "第三本"), titlesDirect)
+
+        // a 标签直接作为属性求值 href
+        val hrefs = evaluator.strings(LegadoRule.parse(".item@a@href"), page)
+        assertEquals(listOf("/book/1", "/book/2", "/book/3"), hrefs)
+
+        // 未写 @text 或 @href 时，firstString 默认提取文本，@href 显式取链接
+        assertEquals("第一本", evaluator.firstString(LegadoRule.parse(".item.0@a"), page))
+        assertEquals("第一本", evaluator.firstString(LegadoRule.parse(".item.0@.title"), page))
+        assertEquals("/book/1", evaluator.firstString(LegadoRule.parse(".item.0@a@href"), page))
+    }
+
+    @Test fun supportsImgSrcAndDataSrcFallback() {
+        val imgHtml = """
+            <html><body>
+              <div class="covers">
+                <img class="img1" src="https://img.com/1.jpg" />
+                <img class="img2" data-src="https://img.com/2.jpg" />
+                <img class="img3" data-original="https://img.com/3.jpg" />
+              </div>
+            </body></html>
+        """.trimIndent()
+        val page = evaluator.parseHtml(imgHtml)
+        assertEquals("https://img.com/1.jpg", evaluator.firstString(LegadoRule.parse(".img1@src"), page))
+        assertEquals("https://img.com/2.jpg", evaluator.firstString(LegadoRule.parse(".img2@src"), page))
+        assertEquals("https://img.com/3.jpg", evaluator.firstString(LegadoRule.parse(".img3@src"), page))
+        // 裸 img 标签兜底取 src
+        assertEquals("https://img.com/1.jpg", evaluator.firstString(LegadoRule.parse(".img1"), page))
+    }
 }

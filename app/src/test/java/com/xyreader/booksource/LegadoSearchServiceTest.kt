@@ -22,21 +22,9 @@ class LegadoSearchServiceTest {
 
     private class FakeFetcher(private val pages: Map<String, String>) : SourcePageFetcher {
         val requested = mutableListOf<Pair<String, Map<String, String>>>()
-        val detailedRequests = mutableListOf<RequestDetails>()
-
-        data class RequestDetails(
-            val url: String,
-            val headers: Map<String, String>,
-            val method: String,
-            val body: String?,
-            val charset: String?,
-        )
-
-        override suspend fun fetch(url: String, headers: Map<String, String>): String {
-            requested += url to headers
-            pages.entries.firstOrNull { url.contains(it.key) }?.let { return it.value }
-            throw IOException("没有为 $url 准备页面")
-        }
+        var lastMethod: String = "GET"
+        var lastBody: String? = null
+        var lastCharset: String? = null
 
         override suspend fun fetch(
             url: String,
@@ -44,10 +32,20 @@ class LegadoSearchServiceTest {
             method: String,
             body: String?,
             charset: String?,
-        ): String {
-            detailedRequests += RequestDetails(url, headers, method, body, charset)
-            return fetch(url, headers)
+        ): FetchResponse {
+            requested += url to headers
+            lastMethod = method
+            lastBody = body
+            lastCharset = charset
+            val match = pages.entries.firstOrNull { url.contains(it.key) }
+            if (match != null) {
+                return FetchResponse(match.value, url)
+            }
+            throw IOException("没有为 $url 准备页面")
         }
+
+        override suspend fun fetch(url: String, headers: Map<String, String>): String =
+            fetch(url, headers, "GET", null, null).body
     }
 
     private val pageAlpha = """
@@ -73,7 +71,7 @@ class LegadoSearchServiceTest {
     ): LegadoBookSource {
         val json = buildString {
             append("""{"bookSourceName":"$name","bookSourceUrl":"$url","bookSourceType":0,"enabled":$enabled,""")
-            if (searchUrl != null) append(""""searchUrl":"$searchUrl",""")
+            if (searchUrl != null) append(""""searchUrl":"${searchUrl.replace("\"", "\\\"")}",""")
             if (header != null) append(""""header":"${header.replace("\"", "\\\"")}",""")
             append(""""ruleSearch":{"bookList":"class.result@tag.li","name":"class.title@text","bookUrl":"class.title@href","author":"class.author@text"}}""")
         }
@@ -197,7 +195,7 @@ class LegadoSearchServiceTest {
 
     @Test fun searchProgressiveReportsProgressAndCollectsResults() = runBlocking {
         val fetcher = FakeFetcher(mapOf("alpha.example.com" to pageAlpha, "beta.example.com" to pageBeta))
-        val service = LegadoSearchService(fetcher = fetcher)
+        val service = LegadoSearchService(fetcher = fetcher, concurrency = 1)
         val started = mutableListOf<String>()
         val completed = mutableListOf<Pair<String, Int>>()
 
@@ -222,7 +220,7 @@ class LegadoSearchServiceTest {
 
     @Test fun searchProgressiveStopsOnCancellationAndPreservesPriorResults() = runBlocking {
         val fetcher = FakeFetcher(mapOf("alpha.example.com" to pageAlpha, "beta.example.com" to pageBeta))
-        val service = LegadoSearchService(fetcher = fetcher)
+        val service = LegadoSearchService(fetcher = fetcher, concurrency = 1)
         val collectedResults = mutableListOf<SourceSearchResult>()
 
         val job = launch {
@@ -248,83 +246,143 @@ class LegadoSearchServiceTest {
         assertTrue("源B 不应在取消后被请求", fetcher.requested.none { it.first.contains("beta.example.com") })
     }
 
-    @Test fun parsesPostSearchUrlWithJsonOptionsAndBody() = runBlocking {
-        val fetcher = FakeFetcher(mapOf("post.example.com" to pageAlpha))
-        val postSource = LegadoBookSource.parseImport(
-            """
-            {
-              "bookSourceName": "POST 源",
-              "bookSourceUrl": "https://post.example.com",
-              "enabled": true,
-              "searchUrl": "https://post.example.com/search.php,{\"method\":\"POST\",\"body\":\"searchkey={{key}}&page={{page}}\",\"headers\":{\"X-Custom\":\"123\"}}",
-              "ruleSearch": {
-                "bookList": "class.result@tag.li",
-                "name": "class.title@text",
-                "bookUrl": "class.title@href"
-              }
-            }
-            """.trimIndent(),
-        ).single()
-
-        val results = LegadoSearchService(fetcher = fetcher).search(listOf(postSource), "三体")
-        val result = results.single()
-        assertNull(result.error)
-        assertEquals(2, result.books.size)
-
-        val req = fetcher.detailedRequests.single()
-        assertEquals("https://post.example.com/search.php", req.url)
-        assertEquals("POST", req.method)
-        assertEquals("searchkey=%E4%B8%89%E4%BD%93&page=1", req.body)
-        assertEquals("123", req.headers["X-Custom"])
+    @Test fun supportsRelativeSearchUrl() = runBlocking {
+        val fetcher = FakeFetcher(mapOf("alpha.example.com/search.php" to pageAlpha))
+        val s = source(
+            url = "https://alpha.example.com",
+            name = "相对路径源",
+            searchUrl = "/search.php?key={{key}}",
+        )
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(s), "测试")
+        assertEquals(1, results.size)
+        assertEquals(2, results[0].books.size)
+        val reqUrl = fetcher.requested.single().first
+        assertEquals("https://alpha.example.com/search.php?key=%E6%B5%8B%E8%AF%95", reqUrl)
     }
 
-    @Test fun encodesKeywordWithSpecifiedGbkCharset() = runBlocking {
-        val fetcher = FakeFetcher(mapOf("gbk.example.com" to pageAlpha))
-        val gbkSource = LegadoBookSource.parseImport(
+    @Test fun supportsSearchUrlWithOptionsPostAndBody() = runBlocking {
+        val fetcher = FakeFetcher(mapOf("alpha.example.com/search" to pageAlpha))
+        val s = source(
+            url = "https://alpha.example.com",
+            name = "POST源",
+            searchUrl = "/search,{\"method\":\"POST\",\"body\":\"searchkey={{key}}&submit=\"}",
+        )
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(s), "凡人")
+        assertEquals(1, results.size)
+        assertEquals(2, results[0].books.size)
+        assertEquals("POST", fetcher.lastMethod)
+        assertEquals("searchkey=%E5%87%A1%E4%BA%BA&submit=", fetcher.lastBody)
+        assertEquals("https://alpha.example.com/search", fetcher.requested.single().first)
+    }
+
+    @Test fun supportsSearchUrlWithCharsetGbk() = runBlocking {
+        val fetcher = FakeFetcher(mapOf("alpha.example.com/search.php" to pageAlpha))
+        val s = source(
+            url = "https://alpha.example.com",
+            name = "GBK源",
+            searchUrl = "/search.php?key={{key}},{\"charset\":\"gbk\"}",
+        )
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(s), "斗破")
+        assertEquals(1, results.size)
+        assertEquals("gbk", fetcher.lastCharset)
+        val expectedGbkEncoded = URLEncoder.encode("斗破", "gbk")
+        assertTrue(fetcher.requested.single().first.contains(expectedGbkEncoded))
+    }
+
+    @Test fun parsesJsonSearchResults() = runBlocking {
+        val jsonPayload = """
+            {
+              "status": 1,
+              "data": [
+                {"book_name": "星门", "book_url": "/book/101", "author_name": "老鹰吃小鸡"},
+                {"book_name": "万族之劫", "book_url": "/book/102", "author_name": "老鹰吃小鸡"}
+              ]
+            }
+        """.trimIndent()
+        val fetcher = FakeFetcher(mapOf("api.example.com/search" to jsonPayload))
+        val jsonSource = LegadoBookSource.parseImport(
             """
             {
-              "bookSourceName": "GBK 源",
-              "bookSourceUrl": "https://gbk.example.com",
+              "bookSourceName": "JSON源",
+              "bookSourceUrl": "https://api.example.com",
               "enabled": true,
-              "searchUrl": "/search.php?k={{key}},{\"charset\":\"gbk\"}",
+              "searchUrl": "https://api.example.com/search?q={{key}}",
               "ruleSearch": {
-                "bookList": "class.result@tag.li",
-                "name": "class.title@text",
-                "bookUrl": "class.title@href"
+                "bookList": "$.data[*]",
+                "name": "book_name",
+                "bookUrl": "book_url",
+                "author": "author_name"
               }
             }
             """.trimIndent(),
         ).single()
 
-        val results = LegadoSearchService(fetcher = fetcher).search(listOf(gbkSource), "三体")
-        assertNull(results.single().error)
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(jsonSource), "老鹰")
+        val res = results.single()
+        assertNull(res.error)
+        assertEquals(2, res.books.size)
+        assertEquals("星门", res.books[0].name)
+        assertEquals("https://api.example.com/book/101", res.books[0].bookUrl)
+        assertEquals("老鹰吃小鸡", res.books[0].author)
+        assertEquals("万族之劫", res.books[1].name)
+    }
 
-        val req = fetcher.detailedRequests.single()
-        // 相对路径自动补全
-        assertTrue(req.url.startsWith("https://gbk.example.com/search.php?k="))
-        // GBK 编码下的“三体”必须是 %C8%FD%CC%E5（而不是 UTF-8 的 %E4%B8%89%E4%BD%93）
-        val gbkEncoded = URLEncoder.encode("三体", "GBK")
-        assertTrue("URL 应包含 GBK 编码关键词: ${req.url}", req.url.contains(gbkEncoded))
-        assertEquals("gbk", req.charset)
+    @Test fun matchesDirectDetailPageOnExactSearch() = runBlocking {
+        val detailPage = """
+            <html><body>
+              <div id="main">
+                <h1 class="book-title">完美世界</h1>
+                <span class="author">辰东</span>
+                <p class="intro">一粒尘可填海，一根草斩尽日月星辰。</p>
+              </div>
+            </body></html>
+        """.trimIndent()
+        val fetcher = FakeFetcher(mapOf("alpha.example.com/search" to detailPage))
+        val directSource = LegadoBookSource.parseImport(
+            """
+            {
+              "bookSourceName": "直接重定向源",
+              "bookSourceUrl": "https://alpha.example.com",
+              "enabled": true,
+              "searchUrl": "/search?q={{key}}",
+              "ruleSearch": {
+                "bookList": ".search-list-item",
+                "name": "h1.book-title@text",
+                "author": ".author@text",
+                "intro": ".intro@text",
+                "checkKeyWord": "h1.book-title@text"
+              }
+            }
+            """.trimIndent(),
+        ).single()
+
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(directSource), "完美世界")
+        val res = results.single()
+        assertNull(res.error)
+        assertEquals(1, res.books.size)
+        assertEquals("完美世界", res.books[0].name)
+        assertEquals("辰东", res.books[0].author)
+        assertEquals("一粒尘可填海，一根草斩尽日月星辰。", res.books[0].intro)
     }
 
     @Test fun filtersOutUnrelatedRecommendationsWhenMatchingBooksExist() = runBlocking {
-        val pageMixed = """
+        val mixedPage = """
             <html><body><ul class="result">
-              <li class="row"><a class="title" href="/book/1">三体：第一部</a><span class="author">刘慈欣</span></li>
-              <li class="row"><a class="title" href="/book/2">让你卧底ETO，你成了三体神明</a><span class="author">猫不语</span></li>
-              <li class="row"><a class="title" href="/book/3">大唐Let`s go</a><span class="author">小学僧小巴</span></li>
-              <li class="row"><a class="title" href="/book/4">马六甲架杆收费</a><span class="author">都市土天榜</span></li>
+              <li class="row"><a class="title" href="/book/1">三体：死神永生</a><span class="author">刘慈欣</span></li>
+              <li class="row"><a class="title" href="/book/2">大唐Let's go</a><span class="author">小和尚</span></li>
+              <li class="row"><a class="title" href="/book/3">三体</a><span class="author">刘慈欣</span></li>
+              <li class="row"><a class="title" href="/book/4">马六甲架杆收费</a><span class="author">都市大王</span></li>
             </ul></body></html>
         """.trimIndent()
+        val fetcher = FakeFetcher(mapOf("alpha.example.com/search" to mixedPage))
+        val s = source("https://alpha.example.com", "测试源", searchUrl = "/search?q={{key}}")
 
-        val fetcher = FakeFetcher(mapOf("mixed.example.com" to pageMixed))
-        val source = source("https://mixed.example.com", "混合源")
-        val results = LegadoSearchService(fetcher = fetcher).search(listOf(source), "三体")
-
-        val result = results.single()
-        assertNull(result.error)
-        // 只有包含“三体”的书保留，大唐与马六甲推荐被过滤
-        assertEquals(listOf("三体：第一部", "让你卧底ETO，你成了三体神明"), result.books.map { it.name })
+        val results = LegadoSearchService(fetcher = fetcher).search(listOf(s), "三体")
+        val res = results.single()
+        assertNull(res.error)
+        // 关键断言：排除了大唐与马六甲等推荐书，且完全匹配的《三体》排在最前
+        assertEquals(2, res.books.size)
+        assertEquals("三体", res.books[0].name)
+        assertEquals("三体：死神永生", res.books[1].name)
     }
 }

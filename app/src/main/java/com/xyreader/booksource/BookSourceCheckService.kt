@@ -6,7 +6,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -40,14 +42,14 @@ data class SourceCheckResult(
 
 /** 单源可用性检测接口，便于测试注入假实现（测试不联网） */
 interface SourceAvailabilityChecker {
-    suspend fun check(source: LegadoBookSource, timeoutMs: Long = 5000L): SourceCheckResult
+    suspend fun check(source: LegadoBookSource, timeoutMs: Long = 3000L): SourceCheckResult
 }
 
 /** 基于 OkHttp 的生产实现 */
 class OkHttpSourceAvailabilityChecker(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build(),
@@ -144,7 +146,7 @@ class OkHttpSourceAvailabilityChecker(
  */
 class BookSourceCheckService(
     private val checker: SourceAvailabilityChecker = OkHttpSourceAvailabilityChecker(),
-    private val concurrency: Int = 8,
+    private val concurrency: Int = 32,
 ) {
     /**
      * 并发渐进式检测书源可用性：
@@ -161,13 +163,16 @@ class BookSourceCheckService(
         val results = ConcurrentHashMap<String, SourceCheckResult>()
         val doneCounter = AtomicInteger(0)
         val semaphore = Semaphore(concurrency)
+        val callbackMutex = Mutex()
 
         supervisorScope {
             val deferreds = sources.map { source ->
                 async {
                     semaphore.withPermit {
                         coroutineContext.ensureActive()
-                        onSourceStart?.invoke(source)
+                        callbackMutex.withLock {
+                            onSourceStart?.invoke(source)
+                        }
                         val result = try {
                             checker.check(source)
                         } catch (e: CancellationException) {
@@ -180,8 +185,10 @@ class BookSourceCheckService(
                             )
                         }
                         results[source.url] = result
-                        val done = doneCounter.incrementAndGet()
-                        onSourceChecked(source, result, done, total)
+                        callbackMutex.withLock {
+                            val done = doneCounter.incrementAndGet()
+                            onSourceChecked(source, result, done, total)
+                        }
                     }
                 }
             }
