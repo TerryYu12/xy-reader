@@ -194,6 +194,10 @@ class LegadoContentService(
 
     private fun absolutize(url: String, base: String): String {
         if (url.startsWith("http://", true) || url.startsWith("https://", true)) return url
+        if (url.startsWith("//")) {
+            val scheme = if (base.contains("://")) base.substringBefore("://") else "https"
+            return "$scheme:$url"
+        }
         val origin = base.substringBefore("://").let { scheme ->
             val host = base.substringAfter("://").substringBefore('/')
             "$scheme://$host"
